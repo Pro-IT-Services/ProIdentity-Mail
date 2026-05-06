@@ -68,6 +68,9 @@ type QuarantineEvent struct {
 	Action         string     `json:"action"`
 	Scanner        string     `json:"scanner"`
 	SymbolsJSON    string     `json:"symbols_json"`
+	StoragePath    string     `json:"storage_path,omitempty"`
+	SizeBytes      int64      `json:"size_bytes,omitempty"`
+	SHA256         string     `json:"sha256,omitempty"`
 	Status         string     `json:"status"`
 	ResolvedAt     *time.Time `json:"resolved_at,omitempty"`
 	ResolutionNote string     `json:"resolution_note,omitempty"`

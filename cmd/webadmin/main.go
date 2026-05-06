@@ -7,6 +7,7 @@ import (
 	"proidentity-mail/internal/admin"
 	"proidentity-mail/internal/app"
 	"proidentity-mail/internal/db"
+	"proidentity-mail/internal/quarantine"
 	"proidentity-mail/internal/session"
 )
 
@@ -22,7 +23,7 @@ func main() {
 			log.Fatalf("open db: %v", err)
 		}
 		defer conn.Close()
-		sqlStore := admin.NewSQLStore(conn)
+		sqlStore := admin.NewSQLStore(conn, quarantine.FileStore{Root: cfg.QuarantineDir, MailRoot: cfg.MailRoot, DeliveryAddr: cfg.ReleaseSMTPAddr})
 		store = sqlStore
 	}
 	sessions := session.NewManager(session.Options{CookieName: "proidentity_admin_session", Secure: cfg.SecureCookies})

@@ -5,23 +5,27 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
+	"net/textproto"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"proidentity-mail/internal/admin"
 	"proidentity-mail/internal/app"
 	"proidentity-mail/internal/db"
 	"proidentity-mail/internal/health"
+	"proidentity-mail/internal/quarantine"
 	"proidentity-mail/internal/render"
 )
 
 func main() {
 	flag.Parse()
 	if flag.NArg() == 0 {
-		fmt.Fprintln(os.Stderr, "usage: mailctl migrate|render|health|seed-dev|rotate-admin-password")
+		fmt.Fprintln(os.Stderr, "usage: mailctl migrate|render|health|seed-dev|rotate-admin-password|quarantine-message|release-quarantine")
 		os.Exit(2)
 	}
 
@@ -41,6 +45,10 @@ func main() {
 		runSeedDev(cfg)
 	case "rotate-admin-password":
 		runRotateAdminPassword(cfg)
+	case "quarantine-message":
+		runQuarantineMessage(cfg, flag.Args()[1:])
+	case "release-quarantine":
+		runReleaseQuarantine(cfg, flag.Args()[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command %q\n", flag.Arg(0))
 		os.Exit(2)
@@ -205,6 +213,88 @@ func runSeedDev(cfg app.Config) {
 		log.Fatalf("insert tenant policy: %v", err)
 	}
 	fmt.Println("seeded development tenant")
+}
+
+func runQuarantineMessage(cfg app.Config, args []string) {
+	flags := flag.NewFlagSet("quarantine-message", flag.ExitOnError)
+	recipient := flags.String("recipient", "", "recipient email address")
+	sender := flags.String("sender", "", "sender email address")
+	messageID := flags.String("message-id", "", "message id")
+	verdict := flags.String("verdict", "malware", "spam, malware, phishing, or policy")
+	action := flags.String("action", "quarantine", "reject, quarantine, or mark")
+	scanner := flags.String("scanner", "manual", "scanner name")
+	symbols := flags.String("symbols", "{}", "scanner symbols JSON")
+	if err := flags.Parse(args); err != nil {
+		log.Fatalf("parse quarantine-message flags: %v", err)
+	}
+	if cfg.DBDSN == "" {
+		log.Fatal("PROIDENTITY_DB_DSN is required")
+	}
+	if strings.TrimSpace(*recipient) == "" {
+		log.Fatal("-recipient is required")
+	}
+	switch *verdict {
+	case "spam", "malware", "phishing", "policy":
+	default:
+		log.Fatal("-verdict must be spam, malware, phishing, or policy")
+	}
+	switch *action {
+	case "reject", "quarantine", "mark":
+	default:
+		log.Fatal("-action must be reject, quarantine, or mark")
+	}
+	ctx := context.Background()
+	conn, err := db.Open(ctx, cfg.DBDSN)
+	if err != nil {
+		log.Fatalf("open db: %v", err)
+	}
+	defer conn.Close()
+	store := admin.NewSQLStore(conn, quarantine.FileStore{Root: cfg.QuarantineDir, MailRoot: cfg.MailRoot, DeliveryAddr: cfg.ReleaseSMTPAddr})
+	event, err := store.StoreQuarantineMessage(ctx, admin.QuarantineMessageInput{
+		Recipient:   *recipient,
+		Sender:      *sender,
+		MessageID:   *messageID,
+		Verdict:     *verdict,
+		Action:      *action,
+		Scanner:     *scanner,
+		SymbolsJSON: *symbols,
+		Reader:      os.Stdin,
+	})
+	if err != nil {
+		log.Fatalf("store quarantine message: %v", err)
+	}
+	fmt.Printf("quarantined id=%d recipient=%s verdict=%s size=%d\n", event.ID, event.Recipient, event.Verdict, event.SizeBytes)
+}
+
+func runReleaseQuarantine(cfg app.Config, args []string) {
+	flags := flag.NewFlagSet("release-quarantine", flag.ExitOnError)
+	id := flags.Uint64("id", 0, "quarantine event id")
+	note := flags.String("note", "mailctl release", "resolution note")
+	if err := flags.Parse(args); err != nil {
+		log.Fatalf("parse release-quarantine flags: %v", err)
+	}
+	if *id == 0 {
+		log.Fatal("-id is required")
+	}
+	if cfg.DBDSN == "" {
+		log.Fatal("PROIDENTITY_DB_DSN is required")
+	}
+	ctx := context.Background()
+	conn, err := db.Open(ctx, cfg.DBDSN)
+	if err != nil {
+		log.Fatalf("open db: %v", err)
+	}
+	defer conn.Close()
+	store := admin.NewSQLStore(conn, quarantine.FileStore{Root: cfg.QuarantineDir, MailRoot: cfg.MailRoot, DeliveryAddr: cfg.ReleaseSMTPAddr})
+	event, err := store.ResolveQuarantineEvent(ctx, *id, "released", *note)
+	if err != nil {
+		var smtpErr *textproto.Error
+		if errors.As(err, &smtpErr) {
+			log.Fatalf("release quarantine failed: smtp_code=%d", smtpErr.Code)
+		}
+		log.Fatalf("release quarantine failed: %T", err)
+	}
+	fmt.Printf("released id=%d status=%s\n", event.ID, event.Status)
 }
 
 func must(data []byte, err error) []byte {

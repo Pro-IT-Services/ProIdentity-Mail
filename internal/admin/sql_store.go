@@ -4,18 +4,25 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"io"
 	"strconv"
 	"strings"
 
 	"proidentity-mail/internal/domain"
+	"proidentity-mail/internal/quarantine"
 )
 
 type SQLStore struct {
-	db *sql.DB
+	db         *sql.DB
+	quarantine quarantine.FileStore
 }
 
-func NewSQLStore(db *sql.DB) SQLStore {
-	return SQLStore{db: db}
+func NewSQLStore(db *sql.DB, stores ...quarantine.FileStore) SQLStore {
+	fileStore := quarantine.FileStore{Root: "/var/lib/proidentity-mail/quarantine", MailRoot: "/var/vmail"}
+	if len(stores) > 0 {
+		fileStore = stores[0]
+	}
+	return SQLStore{db: db, quarantine: fileStore}
 }
 
 func (s SQLStore) CreateTenant(ctx context.Context, tenant domain.Tenant) (domain.Tenant, error) {
@@ -140,7 +147,7 @@ func (s SQLStore) ListUsers(ctx context.Context) ([]domain.User, error) {
 
 func (s SQLStore) ListQuarantineEvents(ctx context.Context) ([]domain.QuarantineEvent, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, tenant_id, user_id, domain_id, message_id, sender, recipient, verdict, action, scanner, CAST(symbols_json AS CHAR), status, resolved_at, resolution_note, created_at
+		SELECT id, tenant_id, user_id, domain_id, message_id, sender, recipient, verdict, action, scanner, CAST(symbols_json AS CHAR), storage_path, size_bytes, sha256, status, resolved_at, resolution_note, created_at
 		FROM quarantine_events
 		ORDER BY created_at DESC, id DESC
 		LIMIT 500`)
@@ -156,9 +163,11 @@ func (s SQLStore) ListQuarantineEvents(ctx context.Context) ([]domain.Quarantine
 		var domainID sql.NullInt64
 		var messageID sql.NullString
 		var sender sql.NullString
+		var storagePath sql.NullString
+		var sha256Value sql.NullString
 		var resolvedAt sql.NullTime
 		var resolutionNote sql.NullString
-		if err := rows.Scan(&event.ID, &event.TenantID, &userID, &domainID, &messageID, &sender, &event.Recipient, &event.Verdict, &event.Action, &event.Scanner, &event.SymbolsJSON, &event.Status, &resolvedAt, &resolutionNote, &event.CreatedAt); err != nil {
+		if err := rows.Scan(&event.ID, &event.TenantID, &userID, &domainID, &messageID, &sender, &event.Recipient, &event.Verdict, &event.Action, &event.Scanner, &event.SymbolsJSON, &storagePath, &event.SizeBytes, &sha256Value, &event.Status, &resolvedAt, &resolutionNote, &event.CreatedAt); err != nil {
 			return nil, err
 		}
 		if userID.Valid {
@@ -175,6 +184,12 @@ func (s SQLStore) ListQuarantineEvents(ctx context.Context) ([]domain.Quarantine
 		if sender.Valid {
 			event.Sender = sender.String
 		}
+		if storagePath.Valid {
+			event.StoragePath = storagePath.String
+		}
+		if sha256Value.Valid {
+			event.SHA256 = sha256Value.String
+		}
 		if resolvedAt.Valid {
 			event.ResolvedAt = &resolvedAt.Time
 		}
@@ -186,12 +201,90 @@ func (s SQLStore) ListQuarantineEvents(ctx context.Context) ([]domain.Quarantine
 	return events, rows.Err()
 }
 
+type QuarantineMessageInput struct {
+	Recipient   string
+	Sender      string
+	MessageID   string
+	Verdict     string
+	Action      string
+	Scanner     string
+	SymbolsJSON string
+	Reader      io.Reader
+}
+
+func (s SQLStore) StoreQuarantineMessage(ctx context.Context, input QuarantineMessageInput) (domain.QuarantineEvent, error) {
+	action := strings.TrimSpace(input.Action)
+	if action == "" {
+		action = "quarantine"
+	}
+	symbolsJSON := strings.TrimSpace(input.SymbolsJSON)
+	if symbolsJSON == "" {
+		symbolsJSON = `{}`
+	}
+	var tenantID uint64
+	var userID sql.NullInt64
+	var domainID sql.NullInt64
+	err := s.db.QueryRowContext(ctx, `
+		SELECT d.tenant_id, u.id, d.id
+		FROM domains d
+		LEFT JOIN users u ON u.primary_domain_id = d.id AND CONCAT(u.local_part, '@', d.name) = ?
+		WHERE d.name = SUBSTRING_INDEX(?, '@', -1)
+		  AND d.status IN ('pending', 'active')
+		LIMIT 1`, strings.ToLower(input.Recipient), strings.ToLower(input.Recipient)).Scan(&tenantID, &userID, &domainID)
+	if err != nil {
+		return domain.QuarantineEvent{}, err
+	}
+	stored, err := s.quarantine.StoreMessage(ctx, quarantine.StoreRequest{TenantID: tenantID, Recipient: input.Recipient, MessageID: input.MessageID, Reader: input.Reader})
+	if err != nil {
+		return domain.QuarantineEvent{}, err
+	}
+	result, err := s.db.ExecContext(ctx, `
+		INSERT INTO quarantine_events(tenant_id, user_id, domain_id, message_id, sender, recipient, verdict, action, scanner, symbols_json, storage_path, size_bytes, sha256)
+		VALUES (?, ?, ?, NULLIF(?, ''), NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?)`,
+		tenantID,
+		nullInt64Arg(userID),
+		nullInt64Arg(domainID),
+		input.MessageID,
+		input.Sender,
+		strings.ToLower(input.Recipient),
+		input.Verdict,
+		action,
+		input.Scanner,
+		symbolsJSON,
+		stored.StoragePath,
+		stored.SizeBytes,
+		stored.SHA256,
+	)
+	if err != nil {
+		_ = s.quarantine.Delete(ctx, stored.StoragePath)
+		return domain.QuarantineEvent{}, err
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		return domain.QuarantineEvent{}, err
+	}
+	return scanQuarantineEvent(ctx, s.db, uint64(id))
+}
+
 func (s SQLStore) ResolveQuarantineEvent(ctx context.Context, eventID uint64, status, note string) (domain.QuarantineEvent, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return domain.QuarantineEvent{}, err
 	}
 	defer tx.Rollback()
+
+	event, err := scanQuarantineEvent(ctx, tx, eventID)
+	if err != nil {
+		return domain.QuarantineEvent{}, err
+	}
+	if event.Status != "held" {
+		return domain.QuarantineEvent{}, sql.ErrNoRows
+	}
+	if status == "released" && event.StoragePath != "" {
+		if _, err := s.quarantine.Release(ctx, quarantine.ReleaseRequest{Recipient: event.Recipient, MessageID: event.MessageID, StoragePath: event.StoragePath, QuarantineID: event.ID}); err != nil {
+			return domain.QuarantineEvent{}, err
+		}
+	}
 
 	result, err := tx.ExecContext(ctx, `
 		UPDATE quarantine_events
@@ -209,9 +302,14 @@ func (s SQLStore) ResolveQuarantineEvent(ctx context.Context, eventID uint64, st
 		return domain.QuarantineEvent{}, sql.ErrNoRows
 	}
 
-	event, err := scanQuarantineEvent(ctx, tx, eventID)
+	event, err = scanQuarantineEvent(ctx, tx, eventID)
 	if err != nil {
 		return domain.QuarantineEvent{}, err
+	}
+	if status == "deleted" && event.StoragePath != "" {
+		if err := s.quarantine.Delete(ctx, event.StoragePath); err != nil {
+			return domain.QuarantineEvent{}, err
+		}
 	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO audit_events(tenant_id, actor_type, action, target_type, target_id, metadata_json)
@@ -241,12 +339,14 @@ func scanQuarantineEvent(ctx context.Context, q quarantineQuerier, eventID uint6
 	var domainID sql.NullInt64
 	var messageID sql.NullString
 	var sender sql.NullString
+	var storagePath sql.NullString
+	var sha256Value sql.NullString
 	var resolvedAt sql.NullTime
 	var resolutionNote sql.NullString
 	err := q.QueryRowContext(ctx, `
-		SELECT id, tenant_id, user_id, domain_id, message_id, sender, recipient, verdict, action, scanner, CAST(symbols_json AS CHAR), status, resolved_at, resolution_note, created_at
+		SELECT id, tenant_id, user_id, domain_id, message_id, sender, recipient, verdict, action, scanner, CAST(symbols_json AS CHAR), storage_path, size_bytes, sha256, status, resolved_at, resolution_note, created_at
 		FROM quarantine_events
-		WHERE id = ?`, eventID).Scan(&event.ID, &event.TenantID, &userID, &domainID, &messageID, &sender, &event.Recipient, &event.Verdict, &event.Action, &event.Scanner, &event.SymbolsJSON, &event.Status, &resolvedAt, &resolutionNote, &event.CreatedAt)
+		WHERE id = ?`, eventID).Scan(&event.ID, &event.TenantID, &userID, &domainID, &messageID, &sender, &event.Recipient, &event.Verdict, &event.Action, &event.Scanner, &event.SymbolsJSON, &storagePath, &event.SizeBytes, &sha256Value, &event.Status, &resolvedAt, &resolutionNote, &event.CreatedAt)
 	if err != nil {
 		return domain.QuarantineEvent{}, err
 	}
@@ -264,6 +364,12 @@ func scanQuarantineEvent(ctx context.Context, q quarantineQuerier, eventID uint6
 	if sender.Valid {
 		event.Sender = sender.String
 	}
+	if storagePath.Valid {
+		event.StoragePath = storagePath.String
+	}
+	if sha256Value.Valid {
+		event.SHA256 = sha256Value.String
+	}
 	if resolvedAt.Valid {
 		event.ResolvedAt = &resolvedAt.Time
 	}
@@ -271,6 +377,13 @@ func scanQuarantineEvent(ctx context.Context, q quarantineQuerier, eventID uint6
 		event.ResolutionNote = resolutionNote.String
 	}
 	return event, nil
+}
+
+func nullInt64Arg(value sql.NullInt64) any {
+	if value.Valid {
+		return value.Int64
+	}
+	return nil
 }
 
 func (s SQLStore) ListAuditEvents(ctx context.Context) ([]domain.AuditEvent, error) {
