@@ -8,15 +8,18 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net/textproto"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"proidentity-mail/internal/admin"
 	"proidentity-mail/internal/app"
+	"proidentity-mail/internal/backup"
 	"proidentity-mail/internal/db"
 	"proidentity-mail/internal/health"
 	"proidentity-mail/internal/quarantine"
@@ -26,7 +29,7 @@ import (
 func main() {
 	flag.Parse()
 	if flag.NArg() == 0 {
-		fmt.Fprintln(os.Stderr, "usage: mailctl migrate|render|health|seed-dev|rotate-admin-password|quarantine-message|release-quarantine|sync-rspamd-policy|render-proxy|sync-proxy")
+		fmt.Fprintln(os.Stderr, "usage: mailctl migrate|render|health|seed-dev|rotate-admin-password|quarantine-message|release-quarantine|sync-rspamd-policy|render-proxy|sync-proxy|backup|backup-verify|restore")
 		os.Exit(2)
 	}
 
@@ -56,6 +59,12 @@ func main() {
 		runRenderProxy(cfg, flag.Args()[1:])
 	case "sync-proxy":
 		runSyncProxy(cfg, flag.Args()[1:])
+	case "backup":
+		runBackup(cfg, flag.Args()[1:])
+	case "backup-verify":
+		runBackupVerify(flag.Args()[1:])
+	case "restore":
+		runRestore(flag.Args()[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command %q\n", flag.Arg(0))
 		os.Exit(2)
@@ -416,6 +425,104 @@ func runSyncProxy(cfg app.Config, args []string) {
 	fmt.Printf("synced proxy config nginx=%s tls_mode=%s\n", *nginxConf, cfg.TLSMode)
 }
 
+func runBackup(cfg app.Config, args []string) {
+	flags := flag.NewFlagSet("backup", flag.ExitOnError)
+	outputDir := flags.String("output-dir", "/var/backups/proidentity-mail", "backup output directory")
+	output := flags.String("output", "", "exact backup archive path")
+	includeDB := flags.Bool("include-db", true, "include MariaDB logical dump")
+	if err := flags.Parse(args); err != nil {
+		log.Fatalf("parse backup flags: %v", err)
+	}
+	if err := os.MkdirAll(*outputDir, 0750); err != nil {
+		log.Fatalf("create backup dir: %v", err)
+	}
+	outputPath := *output
+	if outputPath == "" {
+		outputPath = filepath.Join(*outputDir, "proidentity-mail-"+time.Now().UTC().Format("20060102-150405")+".tar.gz")
+	}
+	tempDir, err := os.MkdirTemp("", "proidentity-backup-*")
+	if err != nil {
+		log.Fatalf("create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+	sources := backupSources(cfg)
+	if *includeDB {
+		dumpPath := filepath.Join(tempDir, "proidentity.sql")
+		if err := dumpDatabase(cfg, dumpPath); err != nil {
+			log.Fatalf("database dump failed: %v", err)
+		}
+		sources = append(sources, backup.Source{Name: "database", Path: dumpPath, Required: true})
+	}
+	host, _ := os.Hostname()
+	manifest, err := backup.Create(context.Background(), backup.Options{OutputPath: outputPath, Sources: sources, Hostname: host})
+	if err != nil {
+		log.Fatalf("backup create failed: %v", err)
+	}
+	summary, err := backup.Verify(context.Background(), outputPath)
+	if err != nil {
+		log.Fatalf("backup verify failed: %v", err)
+	}
+	fmt.Printf("backup=%s entries=%d files=%d bytes=%d\n", outputPath, len(manifest.Entries), summary.Files, summary.Bytes)
+}
+
+func runBackupVerify(args []string) {
+	flags := flag.NewFlagSet("backup-verify", flag.ExitOnError)
+	archive := flags.String("archive", "", "backup archive path")
+	if err := flags.Parse(args); err != nil {
+		log.Fatalf("parse backup-verify flags: %v", err)
+	}
+	if *archive == "" {
+		log.Fatal("-archive is required")
+	}
+	summary, err := backup.Verify(context.Background(), *archive)
+	if err != nil {
+		log.Fatalf("backup verification failed: %v", err)
+	}
+	fmt.Printf("backup_verified archive=%s entries=%d files=%d bytes=%d\n", *archive, summary.Entries, summary.Files, summary.Bytes)
+}
+
+func runRestore(args []string) {
+	flags := flag.NewFlagSet("restore", flag.ExitOnError)
+	archive := flags.String("archive", "", "backup archive path")
+	targetRoot := flags.String("target-root", "", "restore target root or staging directory")
+	apply := flags.Bool("apply", false, "actually extract backup; without this restore only verifies")
+	overwrite := flags.Bool("overwrite", false, "allow overwrite while extracting")
+	if err := flags.Parse(args); err != nil {
+		log.Fatalf("parse restore flags: %v", err)
+	}
+	if *archive == "" {
+		log.Fatal("-archive is required")
+	}
+	summary, err := backup.Verify(context.Background(), *archive)
+	if err != nil {
+		log.Fatalf("restore verification failed: %v", err)
+	}
+	if !*apply {
+		fmt.Printf("restore_dry_run archive=%s entries=%d files=%d bytes=%d\n", *archive, summary.Entries, summary.Files, summary.Bytes)
+		return
+	}
+	if *targetRoot == "" {
+		log.Fatal("-target-root is required when --apply is used")
+	}
+	if err := backup.Restore(context.Background(), *archive, *targetRoot, backup.RestoreOptions{Overwrite: *overwrite}); err != nil {
+		log.Fatalf("restore failed: %v", err)
+	}
+	fmt.Printf("restore_extracted archive=%s target=%s files=%d bytes=%d\n", *archive, *targetRoot, summary.Files, summary.Bytes)
+}
+
+func backupSources(cfg app.Config) []backup.Source {
+	return []backup.Source{
+		{Name: "etc-proidentity-mail", Path: "/etc/proidentity-mail"},
+		{Name: "maildir", Path: cfg.MailRoot},
+		{Name: "quarantine", Path: cfg.QuarantineDir},
+		{Name: "generated-config", Path: cfg.ConfigDir},
+		{Name: "rspamd-dkim", Path: "/var/lib/rspamd/dkim"},
+		{Name: "nginx-proidentity", Path: "/etc/nginx/proidentity"},
+		{Name: "nginx-conf", Path: "/etc/nginx/conf.d/proidentity.conf"},
+		{Name: "certbot", Path: "/etc/letsencrypt"},
+	}
+}
+
 func writeProxyFiles(cfg app.Config, targetDir string) {
 	if err := os.MkdirAll(targetDir, 0750); err != nil {
 		log.Fatalf("create proxy render dir: %v", err)
@@ -452,6 +559,49 @@ func certbotRenderData(cfg app.Config) render.CertbotScriptData {
 		CloudflareCredentialsFile: cfg.CloudflareCredentialsFile,
 		CloudflarePropagationSec:  60,
 	}
+}
+
+func dumpDatabase(cfg app.Config, outputPath string) error {
+	if cfg.DBName == "" {
+		return errors.New("PROIDENTITY_DB_NAME is required")
+	}
+	bin, err := exec.LookPath("mariadb-dump")
+	if err != nil {
+		bin, err = exec.LookPath("mysqldump")
+		if err != nil {
+			return err
+		}
+	}
+	args := []string{"--single-transaction", "--routines", "--events"}
+	if cfg.DBUser != "" {
+		args = append(args, "-u", cfg.DBUser)
+	}
+	args = append(args, cfg.DBName)
+	cmd := exec.Command(bin, args...)
+	cmd.Env = os.Environ()
+	if cfg.DBPassword != "" {
+		cmd.Env = append(cmd.Env, "MYSQL_PWD="+cfg.DBPassword)
+	}
+	out, err := os.OpenFile(outputPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0640)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	cmd.Stdout = out
+	cmd.Stderr = io.Discard
+	if err := cmd.Run(); err == nil {
+		return nil
+	}
+	if _, err := out.Seek(0, 0); err != nil {
+		return err
+	}
+	if err := out.Truncate(0); err != nil {
+		return err
+	}
+	fallback := exec.Command(bin, "--single-transaction", "--routines", "--events", cfg.DBName)
+	fallback.Stdout = out
+	fallback.Stderr = io.Discard
+	return fallback.Run()
 }
 
 func must(data []byte, err error) []byte {
