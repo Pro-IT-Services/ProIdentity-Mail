@@ -422,7 +422,9 @@ const webmailIndexHTML = `<!doctype html>
       font-weight: 700;
       cursor: pointer;
     }
+    .primary-button:disabled { opacity: .65; cursor: wait; }
     .error { color: var(--danger); min-height: 20px; }
+    .error.info { color: var(--muted); }
     @media (max-width: 1100px) {
       body { overflow: auto; height: auto; }
       .app { height: auto; grid-template-columns: 1fr; }
@@ -898,18 +900,28 @@ const webmailIndexHTML = `<!doctype html>
     }
     document.querySelector("#login").addEventListener("submit", async event => {
       event.preventDefault();
-      const data = new FormData(event.currentTarget);
+      const form = event.currentTarget;
+      const button = form.querySelector("button[type='submit']");
+      const data = new FormData(form);
       state.email = String(data.get("email") || "");
-      document.querySelector("#error").textContent = "";
+      const errorBox = document.querySelector("#error");
+      errorBox.className = "error info";
+      errorBox.textContent = "Signing in...";
+      button.disabled = true;
       try {
         const response = await fetch("/api/v1/session", {method: "POST", credentials: "same-origin", cache: "no-store", headers: {"Content-Type": "application/json"}, body: JSON.stringify({email: state.email, password: String(data.get("password") || "")})});
-        const body = await response.json();
+        const body = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(body.error || "Mailbox authentication failed");
         state.csrf = body.csrf_token;
-        await loadMessages();
         document.querySelector("#login-panel").classList.add("hidden");
+        await loadMessages();
+        errorBox.textContent = "";
       } catch (error) {
-        document.querySelector("#error").textContent = error.message;
+        document.querySelector("#login-panel").classList.remove("hidden");
+        errorBox.className = "error";
+        errorBox.textContent = error.message || "Mailbox login failed";
+      } finally {
+        button.disabled = false;
       }
     });
     document.querySelector(".compose").addEventListener("click", () => {

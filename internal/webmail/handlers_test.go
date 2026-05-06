@@ -25,6 +25,21 @@ func TestMessagesEndpointRequiresAuth(t *testing.T) {
 	}
 }
 
+func TestIndexDisablesBrowserCaching(t *testing.T) {
+	handler := NewRouter(&fakeStore{})
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if got := rec.Header().Get("Cache-Control"); got != "no-store" {
+		t.Fatalf("Cache-Control = %q, want no-store", got)
+	}
+}
+
 func TestMessagesEndpointReturnsRecentMessages(t *testing.T) {
 	store := &fakeStore{valid: true}
 	handler := NewRouter(store)
