@@ -3,6 +3,7 @@ package webmail
 import (
 	"context"
 	"database/sql"
+	"log"
 
 	"proidentity-mail/internal/security"
 )
@@ -108,16 +109,16 @@ func (s CompositeStore) ReportMessage(ctx context.Context, email, id, verdict st
 	}
 	if s.Learner != nil {
 		if err := s.Learner.Learn(ctx, path, verdict); err != nil {
-			return err
+			log.Printf("rspamd learning failed verdict=%q: %v", verdict, err)
 		}
 	}
 	if verdict == "spam" {
 		if err := s.Mailbox.MoveMessage(ctx, email, id, "spam"); err != nil {
-			return err
+			log.Printf("spam folder move failed: %v", err)
 		}
 	} else if verdict == "ham" {
 		if err := s.Mailbox.MoveMessage(ctx, email, id, "inbox"); err != nil {
-			return err
+			log.Printf("inbox folder move failed: %v", err)
 		}
 	}
 	return s.Auth.ReportMessage(ctx, email, id, verdict)
