@@ -34,6 +34,37 @@ func (s SQLAuthStore) VerifyUserPassword(ctx context.Context, email, password st
 	return security.VerifyPassword(hash, password), nil
 }
 
+func (s SQLAuthStore) ReportMessage(ctx context.Context, email, id, verdict string) error {
+	var userID uint64
+	var tenantID uint64
+	err := s.db.QueryRowContext(ctx, `
+		SELECT u.id, u.tenant_id
+		FROM users u
+		JOIN domains d ON d.id = u.primary_domain_id
+		WHERE CONCAT(u.local_part, '@', d.name) = ?
+		  AND u.status = 'active'
+		  AND d.status IN ('pending', 'active')
+		LIMIT 1`, email).Scan(&userID, &tenantID)
+	if err != nil {
+		return err
+	}
+	action := "message.report_ham"
+	if verdict == "spam" {
+		action = "message.report_spam"
+	}
+	_, err = s.db.ExecContext(ctx, `
+		INSERT INTO audit_events(tenant_id, actor_type, actor_id, action, target_type, target_id, metadata_json)
+		VALUES (?, 'user', ?, ?, 'message', ?, JSON_OBJECT('email', ?, 'verdict', ?))`,
+		tenantID,
+		userID,
+		action,
+		id,
+		email,
+		verdict,
+	)
+	return err
+}
+
 type CompositeStore struct {
 	Auth    SQLAuthStore
 	Mailbox MaildirStore
@@ -54,4 +85,8 @@ func (s CompositeStore) GetMessage(ctx context.Context, email, id string) (Messa
 
 func (s CompositeStore) SendMessage(ctx context.Context, message OutboundMessage) error {
 	return s.Sender.Send(ctx, message)
+}
+
+func (s CompositeStore) ReportMessage(ctx context.Context, email, id, verdict string) error {
+	return s.Auth.ReportMessage(ctx, email, id, verdict)
 }

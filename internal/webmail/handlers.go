@@ -14,6 +14,7 @@ type Store interface {
 	ListRecentMessages(ctx context.Context, email string, limit int) ([]MessageSummary, error)
 	GetMessage(ctx context.Context, email, id string) (MessageDetail, error)
 	SendMessage(ctx context.Context, message OutboundMessage) error
+	ReportMessage(ctx context.Context, email, id, verdict string) error
 }
 
 type OutboundMessage struct {
@@ -71,8 +72,17 @@ func (h handler) message(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := strings.TrimPrefix(r.URL.Path, "/api/v1/messages/")
+	if strings.HasSuffix(id, "/report") {
+		h.reportMessage(w, r, email, strings.TrimSuffix(id, "/report"))
+		return
+	}
 	if id == "" {
 		writeError(w, http.StatusBadRequest, "message id is required")
+		return
+	}
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", "GET")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	message, err := h.store.GetMessage(r.Context(), email, id)
@@ -81,6 +91,36 @@ func (h handler) message(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, message)
+}
+
+func (h handler) reportMessage(w http.ResponseWriter, r *http.Request, email, id string) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "message id is required")
+		return
+	}
+	var req struct {
+		Verdict string `json:"verdict"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	req.Verdict = strings.ToLower(strings.TrimSpace(req.Verdict))
+	if req.Verdict != "spam" && req.Verdict != "ham" {
+		writeError(w, http.StatusBadRequest, "verdict must be spam or ham")
+		return
+	}
+	if err := h.store.ReportMessage(r.Context(), email, id, req.Verdict); err != nil {
+		log.Printf("webmail report failed email=%q id=%q verdict=%q: %v", email, id, req.Verdict, err)
+		writeError(w, http.StatusInternalServerError, "report message failed")
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "recorded"})
 }
 
 func (h handler) send(w http.ResponseWriter, r *http.Request) {

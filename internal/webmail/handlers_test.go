@@ -85,9 +85,30 @@ func TestSendEndpointUsesAuthenticatedSender(t *testing.T) {
 	}
 }
 
+func TestReportMessageEndpointRecordsSpamTraining(t *testing.T) {
+	store := &fakeStore{valid: true}
+	handler := NewRouter(store)
+	body := `{"verdict":"spam"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/messages/1/report", strings.NewReader(body))
+	req.SetBasicAuth("marko@example.com", "secret123456")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want %d, body %s", rec.Code, http.StatusAccepted, rec.Body.String())
+	}
+	if store.reportedEmail != "marko@example.com" || store.reportedID != "1" || store.reportedVerdict != "spam" {
+		t.Fatalf("unexpected report: email=%q id=%q verdict=%q", store.reportedEmail, store.reportedID, store.reportedVerdict)
+	}
+}
+
 type fakeStore struct {
-	valid bool
-	sent  OutboundMessage
+	valid           bool
+	sent            OutboundMessage
+	reportedEmail   string
+	reportedID      string
+	reportedVerdict string
 }
 
 func (s *fakeStore) VerifyUserPassword(ctx context.Context, email, password string) (bool, error) {
@@ -104,5 +125,12 @@ func (s *fakeStore) GetMessage(ctx context.Context, email, id string) (MessageDe
 
 func (s *fakeStore) SendMessage(ctx context.Context, message OutboundMessage) error {
 	s.sent = message
+	return nil
+}
+
+func (s *fakeStore) ReportMessage(ctx context.Context, email, id, verdict string) error {
+	s.reportedEmail = email
+	s.reportedID = id
+	s.reportedVerdict = verdict
 	return nil
 }

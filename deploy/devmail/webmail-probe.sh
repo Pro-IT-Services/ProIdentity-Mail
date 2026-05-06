@@ -43,6 +43,13 @@ if ! printf '%s' "${detail}" | grep -q "hello webmail"; then
   exit 1
 fi
 
+report_code="$(curl -sS -m 5 -u "${email}:${password}" -H "Content-Type: application/json" --data '{"verdict":"spam"}' -o /tmp/proidentity-webmail-report.out -w "%{http_code}" "http://127.0.0.1:8082/api/v1/messages/${message_id}/report")"
+echo "report_status=${report_code}"
+if [[ "${report_code}" != "202" ]]; then
+  cat /tmp/proidentity-webmail-report.out
+  exit 1
+fi
+
 send_body="{\"to\":[\"${email}\"],\"subject\":\"Webmail API send\",\"body\":\"hello from compose api\"}"
 send_code="$(curl -sS -m 5 -u "${email}:${password}" -H "Content-Type: application/json" --data "${send_body}" -o /tmp/proidentity-webmail-send.out -w "%{http_code}" http://127.0.0.1:8082/api/v1/send)"
 echo "send_status=${send_code}"

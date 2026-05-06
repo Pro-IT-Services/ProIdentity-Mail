@@ -214,6 +214,18 @@ const webmailIndexHTML = `<!doctype html>
       color: #292b3c;
       background: var(--surface);
     }
+    .tool-button {
+      width: 34px;
+      height: 34px;
+      border: 0;
+      border-radius: 8px;
+      background: transparent;
+      color: inherit;
+      display: grid;
+      place-items: center;
+      cursor: pointer;
+    }
+    .tool-button:hover { background: var(--surface-soft); }
     .security-strip {
       margin: 24px 28px 18px;
       border: 1px solid var(--outline);
@@ -377,13 +389,14 @@ const webmailIndexHTML = `<!doctype html>
 
     <section class="reader">
       <div class="toolbar">
-        <span class="material-symbols-outlined">archive</span>
-        <span class="material-symbols-outlined">report</span>
-        <span class="material-symbols-outlined">delete</span>
+        <button class="tool-button" type="button" title="Archive"><span class="material-symbols-outlined">archive</span></button>
+        <button class="tool-button" type="button" id="mark-spam" title="Mark as spam"><span class="material-symbols-outlined">report</span></button>
+        <button class="tool-button" type="button" id="mark-ham" title="Mark as not spam"><span class="material-symbols-outlined">verified</span></button>
+        <button class="tool-button" type="button" title="Delete"><span class="material-symbols-outlined">delete</span></button>
         <span style="height:24px;width:1px;background:var(--outline)"></span>
-        <span class="material-symbols-outlined">reply</span>
-        <span class="material-symbols-outlined">reply_all</span>
-        <span class="material-symbols-outlined">forward</span>
+        <button class="tool-button" type="button" title="Reply"><span class="material-symbols-outlined">reply</span></button>
+        <button class="tool-button" type="button" title="Reply all"><span class="material-symbols-outlined">reply_all</span></button>
+        <button class="tool-button" type="button" title="Forward"><span class="material-symbols-outlined">forward</span></button>
       </div>
       <div class="security-strip">
         <div class="security-items">
@@ -442,6 +455,13 @@ const webmailIndexHTML = `<!doctype html>
       state.messages = await response.json();
       state.selected = state.messages[0] || null;
       render();
+    }
+    async function reportSelected(verdict) {
+      if (!state.selected) return;
+      const response = await fetch("/api/v1/messages/" + encodeURIComponent(state.selected.id) + "/report", {method: "POST", headers: {"Content-Type": "application/json", Authorization: "Basic " + state.token}, body: JSON.stringify({verdict})});
+      if (!response.ok) throw new Error("Message report failed");
+      const label = verdict === "spam" ? "Marked as spam" : "Marked as not spam";
+      document.querySelector("#reader .recommend")?.insertAdjacentHTML("beforebegin", "<div class=\"recommend\"><h3>TRAINING RECORDED</h3><p>" + esc(label) + ". This event is saved for anti-spam learning and audit review.</p></div>");
     }
     function filteredMessages() {
       const q = document.querySelector("#search").value.trim().toLowerCase();
@@ -504,6 +524,8 @@ const webmailIndexHTML = `<!doctype html>
       await loadMessages();
     });
     document.querySelector("#refresh").addEventListener("click", () => loadMessages().catch(error => document.querySelector("#error").textContent = error.message));
+    document.querySelector("#mark-spam").addEventListener("click", () => reportSelected("spam").catch(error => alert(error.message)));
+    document.querySelector("#mark-ham").addEventListener("click", () => reportSelected("ham").catch(error => alert(error.message)));
     document.querySelector("#search").addEventListener("input", render);
     document.addEventListener("click", event => {
       const button = event.target.closest("[data-id]");
