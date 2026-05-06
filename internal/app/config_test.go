@@ -43,6 +43,12 @@ func TestLoadConfigDefaults(t *testing.T) {
 	if cfg.MailHostname != "mail.local" {
 		t.Fatalf("MailHostname = %q, want default", cfg.MailHostname)
 	}
+	if cfg.ProxyMode != "internal-nginx" || cfg.TLSMode != "behind-proxy" {
+		t.Fatalf("proxy defaults = %q/%q, want internal-nginx/behind-proxy", cfg.ProxyMode, cfg.TLSMode)
+	}
+	if cfg.ACMEWebroot != "/var/lib/proidentity-mail/acme" {
+		t.Fatalf("ACMEWebroot = %q, want default", cfg.ACMEWebroot)
+	}
 }
 
 func TestLoadConfigRequiresDSNForDatabaseUse(t *testing.T) {
@@ -59,5 +65,27 @@ func TestLoadConfigRequiresDSNForDatabaseUse(t *testing.T) {
 	}
 	if cfg.AdminUsername != "root" || cfg.AdminPassword != "secret" {
 		t.Fatalf("admin credentials not loaded")
+	}
+}
+
+func TestLoadConfigDerivesProxyHostnamesFromPublicHostname(t *testing.T) {
+	t.Setenv("PROIDENTITY_PUBLIC_HOSTNAME", "example.com")
+	t.Setenv("PROIDENTITY_TLS_MODE", "letsencrypt-dns-cloudflare")
+	t.Setenv("PROIDENTITY_CLOUDFLARE_CREDENTIALS_FILE", "/etc/proidentity-mail/cloudflare.ini")
+	t.Setenv("PROIDENTITY_TRUSTED_PROXY_CIDRS", "10.0.0.0/8, 192.168.0.0/16")
+	t.Setenv("PROIDENTITY_TRUST_PROXY_HEADERS", "true")
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig returned error: %v", err)
+	}
+	if cfg.AdminHostname != "admin.example.com" || cfg.WebmailHostname != "mail.example.com" || cfg.DAVHostname != "dav.example.com" {
+		t.Fatalf("derived hostnames = %q/%q/%q", cfg.AdminHostname, cfg.WebmailHostname, cfg.DAVHostname)
+	}
+	if cfg.TLSMode != "letsencrypt-dns-cloudflare" || cfg.CloudflareCredentialsFile == "" {
+		t.Fatalf("tls config not loaded")
+	}
+	if len(cfg.TrustedProxyCIDRs) != 2 || !cfg.TrustProxyHeaders {
+		t.Fatalf("trusted proxy config not loaded: %+v", cfg.TrustedProxyCIDRs)
 	}
 }

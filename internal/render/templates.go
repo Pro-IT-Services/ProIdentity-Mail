@@ -218,3 +218,183 @@ rules {
 {{ end -}}
 }
 `
+
+const nginxProxyTemplate = `
+map $http_upgrade $connection_upgrade {
+  default upgrade;
+  '' close;
+}
+
+map $http_x_forwarded_proto $proidentity_forwarded_proto {
+  default $scheme;
+  "~^https?$" $http_x_forwarded_proto;
+  "" $scheme;
+}
+
+{{- if .TrustProxyHeaders }}
+{{- range .TrustedProxyCIDRs }}
+set_real_ip_from {{ . }};
+{{- end }}
+real_ip_header X-Forwarded-For;
+real_ip_recursive on;
+{{- end }}
+
+server {
+  listen 80;
+  server_name {{ .AdminHostname }};
+  {{- if eq .TLSMode "letsencrypt-http" }}
+  location ^~ /.well-known/acme-challenge/ {
+    root {{ .ACMEWebroot }};
+    default_type "text/plain";
+  }
+  {{- end }}
+  {{- if and .TLSEnabled .ForceHTTPS }}
+  location / {
+    return 301 https://$host$request_uri;
+  }
+  {{- else }}
+  include /etc/nginx/proidentity/proxy-common.conf;
+  location / {
+    proxy_pass http://127.0.0.1:8080;
+  }
+  {{- end }}
+}
+
+server {
+  listen 80;
+  server_name {{ .WebmailHostname }};
+  {{- if eq .TLSMode "letsencrypt-http" }}
+  location ^~ /.well-known/acme-challenge/ {
+    root {{ .ACMEWebroot }};
+    default_type "text/plain";
+  }
+  {{- end }}
+  {{- if and .TLSEnabled .ForceHTTPS }}
+  location / {
+    return 301 https://$host$request_uri;
+  }
+  {{- else }}
+  include /etc/nginx/proidentity/proxy-common.conf;
+  location / {
+    proxy_pass http://127.0.0.1:8082;
+  }
+  location /dav/ {
+    proxy_pass http://127.0.0.1:8081;
+  }
+  location /.well-known/caldav {
+    proxy_pass http://127.0.0.1:8080;
+  }
+  location /.well-known/carddav {
+    proxy_pass http://127.0.0.1:8080;
+  }
+  {{- end }}
+}
+
+server {
+  listen 80;
+  server_name {{ .DAVHostname }};
+  {{- if eq .TLSMode "letsencrypt-http" }}
+  location ^~ /.well-known/acme-challenge/ {
+    root {{ .ACMEWebroot }};
+    default_type "text/plain";
+  }
+  {{- end }}
+  {{- if and .TLSEnabled .ForceHTTPS }}
+  location / {
+    return 301 https://$host$request_uri;
+  }
+  {{- else }}
+  include /etc/nginx/proidentity/proxy-common.conf;
+  location / {
+    proxy_pass http://127.0.0.1:8081;
+  }
+  {{- end }}
+}
+
+{{- if .TLSEnabled }}
+server {
+  listen 443 ssl http2;
+  server_name {{ .AdminHostname }};
+  ssl_certificate {{ .CertPath }};
+  ssl_certificate_key {{ .KeyPath }};
+  add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+  include /etc/nginx/proidentity/proxy-common.conf;
+  location / {
+    proxy_pass http://127.0.0.1:8080;
+  }
+}
+
+server {
+  listen 443 ssl http2;
+  server_name {{ .WebmailHostname }};
+  ssl_certificate {{ .CertPath }};
+  ssl_certificate_key {{ .KeyPath }};
+  add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+  include /etc/nginx/proidentity/proxy-common.conf;
+  location / {
+    proxy_pass http://127.0.0.1:8082;
+  }
+  location /dav/ {
+    proxy_pass http://127.0.0.1:8081;
+  }
+  location /.well-known/caldav {
+    proxy_pass http://127.0.0.1:8080;
+  }
+  location /.well-known/carddav {
+    proxy_pass http://127.0.0.1:8080;
+  }
+}
+
+server {
+  listen 443 ssl http2;
+  server_name {{ .DAVHostname }};
+  ssl_certificate {{ .CertPath }};
+  ssl_certificate_key {{ .KeyPath }};
+  add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+  include /etc/nginx/proidentity/proxy-common.conf;
+  location / {
+    proxy_pass http://127.0.0.1:8081;
+  }
+}
+{{- end }}
+`
+
+const nginxProxyCommonTemplate = `
+proxy_http_version 1.1;
+proxy_set_header Host $host;
+proxy_set_header X-Real-IP $remote_addr;
+proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+proxy_set_header X-Forwarded-Host $host;
+proxy_set_header X-Forwarded-Port $server_port;
+proxy_set_header X-Forwarded-Proto $proidentity_forwarded_proto;
+proxy_set_header Upgrade $http_upgrade;
+proxy_set_header Connection $connection_upgrade;
+proxy_read_timeout 300s;
+client_max_body_size 100m;
+`
+
+const certbotScriptTemplate = `
+#!/bin/sh
+set -eu
+
+case "{{ .TLSMode }}" in
+  letsencrypt-http)
+    install -d -m 0755 {{ .ACMEWebroot }}
+    certbot certonly --webroot -w {{ .ACMEWebroot }}{{ range .Hostnames }} -d {{ . }}{{ end }}
+    ;;
+  letsencrypt-dns-cloudflare)
+    if [ -z "{{ .CloudflareCredentialsFile }}" ]; then
+      echo "Cloudflare credentials file is required for letsencrypt-dns-cloudflare" >&2
+      exit 2
+    fi
+    certbot certonly --dns-cloudflare --dns-cloudflare-credentials {{ .CloudflareCredentialsFile }} --dns-cloudflare-propagation-seconds {{ .CloudflarePropagationSec }}{{ range .Hostnames }} -d {{ . }}{{ end }}
+    ;;
+  custom-cert|behind-proxy|none)
+    echo "No certbot action for {{ .TLSMode }}"
+    ;;
+  *)
+    echo "Unsupported TLS mode: {{ .TLSMode }}" >&2
+    exit 2
+    ;;
+esac
+`

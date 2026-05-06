@@ -26,7 +26,7 @@ import (
 func main() {
 	flag.Parse()
 	if flag.NArg() == 0 {
-		fmt.Fprintln(os.Stderr, "usage: mailctl migrate|render|health|seed-dev|rotate-admin-password|quarantine-message|release-quarantine|sync-rspamd-policy")
+		fmt.Fprintln(os.Stderr, "usage: mailctl migrate|render|health|seed-dev|rotate-admin-password|quarantine-message|release-quarantine|sync-rspamd-policy|render-proxy|sync-proxy")
 		os.Exit(2)
 	}
 
@@ -52,6 +52,10 @@ func main() {
 		runReleaseQuarantine(cfg, flag.Args()[1:])
 	case "sync-rspamd-policy":
 		runSyncRspamdPolicy(cfg, flag.Args()[1:])
+	case "render-proxy":
+		runRenderProxy(cfg, flag.Args()[1:])
+	case "sync-proxy":
+		runSyncProxy(cfg, flag.Args()[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command %q\n", flag.Arg(0))
 		os.Exit(2)
@@ -364,6 +368,92 @@ func runSyncRspamdPolicy(cfg app.Config, args []string) {
 	fmt.Printf("synced rspamd policy domains=%d target=%s\n", len(policies), *targetDir)
 }
 
+func runRenderProxy(cfg app.Config, args []string) {
+	flags := flag.NewFlagSet("render-proxy", flag.ExitOnError)
+	targetDir := flags.String("target-dir", filepath.Join(cfg.ConfigDir, "proxy"), "directory for rendered proxy files")
+	if err := flags.Parse(args); err != nil {
+		log.Fatalf("parse render-proxy flags: %v", err)
+	}
+	writeProxyFiles(cfg, *targetDir)
+	fmt.Printf("rendered proxy config to %s\n", *targetDir)
+}
+
+func runSyncProxy(cfg app.Config, args []string) {
+	flags := flag.NewFlagSet("sync-proxy", flag.ExitOnError)
+	nginxConf := flags.String("nginx-conf", "/etc/nginx/conf.d/proidentity.conf", "nginx server config path")
+	commonDir := flags.String("common-dir", "/etc/nginx/proidentity", "nginx shared include directory")
+	certScript := flags.String("cert-script", "/opt/proidentity-mail/bin/proidentity-issue-cert", "certbot helper script path")
+	reload := flags.Bool("reload", false, "test and reload nginx after writing config")
+	if err := flags.Parse(args); err != nil {
+		log.Fatalf("parse sync-proxy flags: %v", err)
+	}
+	if cfg.ProxyMode != "internal-nginx" {
+		log.Fatalf("unsupported proxy mode %q", cfg.ProxyMode)
+	}
+	if err := os.MkdirAll(filepath.Dir(*nginxConf), 0755); err != nil {
+		log.Fatalf("create nginx config dir: %v", err)
+	}
+	if err := os.MkdirAll(*commonDir, 0755); err != nil {
+		log.Fatalf("create nginx common dir: %v", err)
+	}
+	if err := os.MkdirAll(cfg.ACMEWebroot, 0755); err != nil {
+		log.Fatalf("create acme webroot: %v", err)
+	}
+	writeRenderedAtomic(*nginxConf, must(render.RenderNginxProxy(proxyRenderData(cfg))))
+	writeRenderedAtomic(filepath.Join(*commonDir, "proxy-common.conf"), must(render.RenderNginxProxyCommon()))
+	writeRenderedAtomic(*certScript, must(render.RenderCertbotScript(certbotRenderData(cfg))))
+	if err := os.Chmod(*certScript, 0750); err != nil {
+		log.Fatalf("chmod cert script: %v", err)
+	}
+	if *reload {
+		if err := testNginx(); err != nil {
+			log.Fatalf("nginx config test: %v", err)
+		}
+		if err := reloadNginx(); err != nil {
+			log.Fatalf("reload nginx: %v", err)
+		}
+	}
+	fmt.Printf("synced proxy config nginx=%s tls_mode=%s\n", *nginxConf, cfg.TLSMode)
+}
+
+func writeProxyFiles(cfg app.Config, targetDir string) {
+	if err := os.MkdirAll(targetDir, 0750); err != nil {
+		log.Fatalf("create proxy render dir: %v", err)
+	}
+	writeRendered(filepath.Join(targetDir, "proidentity-nginx.conf"), must(render.RenderNginxProxy(proxyRenderData(cfg))))
+	writeRendered(filepath.Join(targetDir, "proxy-common.conf"), must(render.RenderNginxProxyCommon()))
+	certPath := filepath.Join(targetDir, "issue-cert.sh")
+	writeRendered(certPath, must(render.RenderCertbotScript(certbotRenderData(cfg))))
+	if err := os.Chmod(certPath, 0750); err != nil {
+		log.Fatalf("chmod cert script: %v", err)
+	}
+}
+
+func proxyRenderData(cfg app.Config) render.NginxProxyData {
+	return render.NginxProxyData{
+		TLSMode:           cfg.TLSMode,
+		AdminHostname:     cfg.AdminHostname,
+		WebmailHostname:   cfg.WebmailHostname,
+		DAVHostname:       cfg.DAVHostname,
+		ACMEWebroot:       cfg.ACMEWebroot,
+		CertPath:          cfg.TLSCertPath,
+		KeyPath:           cfg.TLSKeyPath,
+		ForceHTTPS:        cfg.ForceHTTPS,
+		TrustProxyHeaders: cfg.TrustProxyHeaders,
+		TrustedProxyCIDRs: cfg.TrustedProxyCIDRs,
+	}
+}
+
+func certbotRenderData(cfg app.Config) render.CertbotScriptData {
+	return render.CertbotScriptData{
+		TLSMode:                   cfg.TLSMode,
+		Hostnames:                 []string{cfg.AdminHostname, cfg.WebmailHostname, cfg.DAVHostname},
+		ACMEWebroot:               cfg.ACMEWebroot,
+		CloudflareCredentialsFile: cfg.CloudflareCredentialsFile,
+		CloudflarePropagationSec:  60,
+	}
+}
+
 func must(data []byte, err error) []byte {
 	if err != nil {
 		log.Fatal(err)
@@ -397,4 +487,23 @@ func reloadRspamd() error {
 		return cmd.Run()
 	}
 	return errors.New("no rspamd reload command available")
+}
+
+func testNginx() error {
+	path, err := exec.LookPath("nginx")
+	if err != nil {
+		return err
+	}
+	return exec.Command(path, "-t").Run()
+}
+
+func reloadNginx() error {
+	if path, err := exec.LookPath("systemctl"); err == nil {
+		return exec.Command(path, "reload-or-restart", "nginx").Run()
+	}
+	path, err := exec.LookPath("nginx")
+	if err != nil {
+		return err
+	}
+	return exec.Command(path, "-s", "reload").Run()
 }

@@ -252,3 +252,88 @@ func TestRenderRspamdForceActionsAppliesMalwarePolicy(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderNginxProxySupportsManagedHTTPChallengeTLS(t *testing.T) {
+	out, err := RenderNginxProxy(NginxProxyData{
+		TLSMode:         "letsencrypt-http",
+		AdminHostname:   "admin.example.com",
+		WebmailHostname: "mail.example.com",
+		DAVHostname:     "dav.example.com",
+		ACMEWebroot:     "/var/lib/proidentity-mail/acme",
+		ForceHTTPS:      true,
+	})
+	if err != nil {
+		t.Fatalf("RenderNginxProxy returned error: %v", err)
+	}
+	text := string(out)
+	for _, want := range []string{
+		"server_name admin.example.com;",
+		"proxy_pass http://127.0.0.1:8080;",
+		"server_name mail.example.com;",
+		"proxy_pass http://127.0.0.1:8082;",
+		"server_name dav.example.com;",
+		"proxy_pass http://127.0.0.1:8081;",
+		"location ^~ /.well-known/acme-challenge/",
+		"return 301 https://$host$request_uri;",
+		"ssl_certificate /etc/letsencrypt/live/admin.example.com/fullchain.pem;",
+		"add_header Strict-Transport-Security",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("nginx proxy config missing %q: %s", want, text)
+		}
+	}
+}
+
+func TestRenderNginxProxySupportsBehindProxyTrustedCIDRs(t *testing.T) {
+	out, err := RenderNginxProxy(NginxProxyData{
+		TLSMode:           "behind-proxy",
+		AdminHostname:     "admin.internal",
+		WebmailHostname:   "mail.internal",
+		DAVHostname:       "dav.internal",
+		TrustedProxyCIDRs: []string{"10.0.0.0/8", "192.168.0.0/16"},
+		TrustProxyHeaders: true,
+	})
+	if err != nil {
+		t.Fatalf("RenderNginxProxy returned error: %v", err)
+	}
+	text := string(out)
+	for _, want := range []string{
+		"listen 80;",
+		"set_real_ip_from 10.0.0.0/8;",
+		"set_real_ip_from 192.168.0.0/16;",
+		"real_ip_header X-Forwarded-For;",
+		`"~^https?$" $http_x_forwarded_proto;`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("behind-proxy config missing %q: %s", want, text)
+		}
+	}
+	if strings.Contains(text, "listen 443 ssl") {
+		t.Fatalf("behind-proxy mode should not force internal TLS: %s", text)
+	}
+}
+
+func TestRenderCertbotScriptSupportsCloudflareDNS(t *testing.T) {
+	out, err := RenderCertbotScript(CertbotScriptData{
+		TLSMode:                   "letsencrypt-dns-cloudflare",
+		Hostnames:                 []string{"admin.example.com", "mail.example.com"},
+		CloudflareCredentialsFile: "/etc/proidentity-mail/cloudflare.ini",
+		CloudflarePropagationSec:  60,
+	})
+	if err != nil {
+		t.Fatalf("RenderCertbotScript returned error: %v", err)
+	}
+	text := string(out)
+	for _, want := range []string{
+		"certbot certonly",
+		"--dns-cloudflare",
+		"--dns-cloudflare-credentials /etc/proidentity-mail/cloudflare.ini",
+		"--dns-cloudflare-propagation-seconds 60",
+		"-d admin.example.com",
+		"-d mail.example.com",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("certbot script missing %q: %s", want, text)
+		}
+	}
+}
