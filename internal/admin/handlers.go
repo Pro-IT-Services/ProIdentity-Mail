@@ -24,6 +24,7 @@ type Store interface {
 	CreateUser(ctx context.Context, user domain.User) (domain.User, error)
 	ListUsers(ctx context.Context) ([]domain.User, error)
 	ListQuarantineEvents(ctx context.Context) ([]domain.QuarantineEvent, error)
+	ListAuditEvents(ctx context.Context) ([]domain.AuditEvent, error)
 	GetDomainDNS(ctx context.Context, domainID uint64) (domain.DomainDNS, error)
 }
 
@@ -62,6 +63,7 @@ func NewRouter(store Store, authConfig ...AuthConfig) http.Handler {
 		protected.Get("/api/v1/users", h.listUsers)
 		protected.Post("/api/v1/users", h.createUser)
 		protected.Get("/api/v1/quarantine", h.listQuarantineEvents)
+		protected.Get("/api/v1/audit", h.listAuditEvents)
 	})
 	return r
 }
@@ -302,6 +304,19 @@ func (h handler) listQuarantineEvents(w http.ResponseWriter, r *http.Request) {
 	events, err := h.store.ListQuarantineEvents(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "list quarantine events failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, events)
+}
+
+func (h handler) listAuditEvents(w http.ResponseWriter, r *http.Request) {
+	if h.store == nil {
+		writeError(w, http.StatusServiceUnavailable, "store unavailable")
+		return
+	}
+	events, err := h.store.ListAuditEvents(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "list audit events failed")
 		return
 	}
 	writeJSON(w, http.StatusOK, events)

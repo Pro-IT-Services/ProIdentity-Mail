@@ -96,6 +96,7 @@ func TestListEndpoints(t *testing.T) {
 		{path: "/api/v1/domains", want: "example.com"},
 		{path: "/api/v1/users", want: "marko"},
 		{path: "/api/v1/quarantine", want: "EICAR"},
+		{path: "/api/v1/audit", want: "message.report_spam"},
 	}
 
 	for _, tt := range tests {
@@ -335,6 +336,17 @@ func (s *fakeStore) ListQuarantineEvents(ctx context.Context) ([]domain.Quaranti
 		Action:      "quarantine",
 		Scanner:     "ClamAV",
 		SymbolsJSON: `{"signature":"EICAR-Test-Signature"}`,
+	}}, nil
+}
+
+func (s *fakeStore) ListAuditEvents(ctx context.Context) ([]domain.AuditEvent, error) {
+	return []domain.AuditEvent{{
+		ID:           55,
+		ActorType:    "user",
+		Action:       "message.report_spam",
+		TargetType:   "message",
+		TargetID:     "1",
+		MetadataJSON: `{"verdict":"spam"}`,
 	}}, nil
 }
 

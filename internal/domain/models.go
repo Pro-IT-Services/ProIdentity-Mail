@@ -70,3 +70,15 @@ type QuarantineEvent struct {
 	SymbolsJSON string    `json:"symbols_json"`
 	CreatedAt   time.Time `json:"created_at"`
 }
+
+type AuditEvent struct {
+	ID           uint64    `json:"id"`
+	TenantID     *uint64   `json:"tenant_id,omitempty"`
+	ActorType    string    `json:"actor_type"`
+	ActorID      *uint64   `json:"actor_id,omitempty"`
+	Action       string    `json:"action"`
+	TargetType   string    `json:"target_type"`
+	TargetID     string    `json:"target_id"`
+	MetadataJSON string    `json:"metadata_json"`
+	CreatedAt    time.Time `json:"created_at"`
+}

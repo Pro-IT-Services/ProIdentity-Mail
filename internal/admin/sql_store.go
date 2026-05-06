@@ -177,6 +177,38 @@ func (s SQLStore) ListQuarantineEvents(ctx context.Context) ([]domain.Quarantine
 	return events, rows.Err()
 }
 
+func (s SQLStore) ListAuditEvents(ctx context.Context) ([]domain.AuditEvent, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, tenant_id, actor_type, actor_id, action, target_type, target_id, CAST(metadata_json AS CHAR), created_at
+		FROM audit_events
+		ORDER BY created_at DESC, id DESC
+		LIMIT 500`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	events := make([]domain.AuditEvent, 0)
+	for rows.Next() {
+		var event domain.AuditEvent
+		var tenantID sql.NullInt64
+		var actorID sql.NullInt64
+		if err := rows.Scan(&event.ID, &tenantID, &event.ActorType, &actorID, &event.Action, &event.TargetType, &event.TargetID, &event.MetadataJSON, &event.CreatedAt); err != nil {
+			return nil, err
+		}
+		if tenantID.Valid {
+			id := uint64(tenantID.Int64)
+			event.TenantID = &id
+		}
+		if actorID.Valid {
+			id := uint64(actorID.Int64)
+			event.ActorID = &id
+		}
+		events = append(events, event)
+	}
+	return events, rows.Err()
+}
+
 func (s SQLStore) GetDomainDNS(ctx context.Context, domainID uint64) (domain.DomainDNS, error) {
 	var domainName string
 	var selector sql.NullString

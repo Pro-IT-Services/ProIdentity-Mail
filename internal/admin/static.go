@@ -465,6 +465,11 @@ const adminIndexHTML = `<!doctype html>
         <div class="table-wrap"><table><thead><tr><th>Verdict</th><th>Recipient</th><th>Sender</th><th>Scanner</th><th>Action</th><th>Symbols</th><th>Date</th></tr></thead><tbody id="quarantine"></tbody></table></div>
       </section>
 
+      <section class="card panel hidden" id="audit-panel">
+        <div class="panel-head"><h3>Audit Logs</h3><div class="panel-actions"><button class="secondary-button" id="refresh-audit"><span class="material-symbols-outlined">refresh</span>Refresh</button></div></div>
+        <div class="table-wrap"><table><thead><tr><th>Action</th><th>Actor</th><th>Target</th><th>Tenant</th><th>Metadata</th><th>Date</th></tr></thead><tbody id="audit"></tbody></table></div>
+      </section>
+
       <section class="card panel hidden" id="placeholder-panel">
         <div class="panel-head"><h3 id="placeholder-title">Coming Next</h3></div>
         <div class="dns-grid"><div class="muted">This section is reserved for the next admin module. The visual shell is ready; backend functions will be attached as we implement each service capability.</div></div>
@@ -478,7 +483,7 @@ const adminIndexHTML = `<!doctype html>
   </div>
 
   <script>
-    const state = { tenants: [], domains: [], users: [], quarantine: [], view: "tenants", dnsDomainId: null };
+    const state = { tenants: [], domains: [], users: [], quarantine: [], audit: [], view: "tenants", dnsDomainId: null };
     const statusEl = document.querySelector("#status");
     const searchEl = document.querySelector("#search");
     const showStatus = (text, error) => { statusEl.textContent = text || ""; statusEl.className = error ? "toast error" : "toast"; };
@@ -515,21 +520,25 @@ const adminIndexHTML = `<!doctype html>
       document.querySelector("#quarantine").innerHTML = filtered(state.quarantine, ["recipient","sender","verdict","action","scanner","symbols_json"]).map(item =>
         "<tr><td>" + badge(item.verdict) + "</td><td><strong>" + esc(item.recipient) + "</strong><div class=\"muted\">Tenant " + esc(item.tenant_id) + "</div></td><td class=\"muted\">" + esc(item.sender || "-") + "</td><td>" + esc(item.scanner) + "</td><td>" + esc(item.action) + "</td><td><code>" + esc(item.symbols_json || "{}") + "</code></td><td>" + esc(dateText(item.created_at)) + "</td></tr>"
       ).join("");
+      document.querySelector("#audit").innerHTML = filtered(state.audit, ["actor_type","action","target_type","target_id","metadata_json"]).map(item =>
+        "<tr><td><strong>" + esc(item.action) + "</strong></td><td>" + esc(item.actor_type) + "<div class=\"muted\">" + esc(item.actor_id || "-") + "</div></td><td>" + esc(item.target_type) + "<div class=\"muted\">" + esc(item.target_id) + "</div></td><td>" + esc(item.tenant_id || "-") + "</td><td><code>" + esc(item.metadata_json || "{}") + "</code></td><td>" + esc(dateText(item.created_at)) + "</td></tr>"
+      ).join("");
     }
     async function refresh() {
-      const [tenants, domains, users, quarantine] = await Promise.all([api("/api/v1/tenants"), api("/api/v1/domains"), api("/api/v1/users"), api("/api/v1/quarantine")]);
+      const [tenants, domains, users, quarantine, audit] = await Promise.all([api("/api/v1/tenants"), api("/api/v1/domains"), api("/api/v1/users"), api("/api/v1/quarantine"), api("/api/v1/audit")]);
       state.tenants = tenants || [];
       state.domains = domains || [];
       state.users = users || [];
       state.quarantine = quarantine || [];
+      state.audit = audit || [];
       render();
       showStatus("Loaded live platform data");
     }
     function setView(view) {
       state.view = view;
       document.querySelectorAll(".nav-item[data-view]").forEach(item => item.classList.toggle("active", item.dataset.view === view));
-      ["tenants","domains","users","dns","quarantine"].forEach(id => document.querySelector("#" + id + "-panel").classList.toggle("hidden", view !== id));
-      document.querySelector("#placeholder-panel").classList.toggle("hidden", !["audit","settings"].includes(view));
+      ["tenants","domains","users","dns","quarantine","audit"].forEach(id => document.querySelector("#" + id + "-panel").classList.toggle("hidden", view !== id));
+      document.querySelector("#placeholder-panel").classList.toggle("hidden", view !== "settings");
       document.querySelector("#forms").classList.toggle("hidden", !["tenants","domains","users"].includes(view));
       const copy = {
         tenants: ["Tenants", "Manage Tenants", "Organization-level provisioning and compliance monitoring.", "Search tenants by name or ID..."],
@@ -579,6 +588,7 @@ const adminIndexHTML = `<!doctype html>
     document.querySelectorAll(".nav-item[data-view]").forEach(item => item.addEventListener("click", () => setView(item.dataset.view)));
     document.querySelector("#primary-action").addEventListener("click", () => document.querySelector("#forms").scrollIntoView({behavior: "smooth"}));
     document.querySelector("#refresh-quarantine").addEventListener("click", () => refresh().catch(error => showStatus(error.message, true)));
+    document.querySelector("#refresh-audit").addEventListener("click", () => refresh().catch(error => showStatus(error.message, true)));
     document.addEventListener("click", event => { const id = event.target.closest("[data-dns]")?.dataset.dns; if (id) loadDNS(id); });
     searchEl.addEventListener("input", render);
     refresh().catch(error => showStatus(error.message, true));
