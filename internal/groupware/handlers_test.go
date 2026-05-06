@@ -113,10 +113,114 @@ func TestDefaultCollectionsPropfind(t *testing.T) {
 	}
 }
 
+func TestPutAndGetContactObject(t *testing.T) {
+	store := &fakeStore{valid: true}
+	handler := NewRouter(store)
+	vcard := "BEGIN:VCARD\r\nVERSION:4.0\r\nUID:contact-1\r\nFN:Marko Test\r\nEMAIL:marko@example.com\r\nEND:VCARD\r\n"
+
+	put := httptest.NewRequest(http.MethodPut, "/dav/addressbooks/marko@example.com/default/contact-1.vcf", bytes.NewBufferString(vcard))
+	put.SetBasicAuth("marko@example.com", "secret123456")
+	putRec := httptest.NewRecorder()
+	handler.ServeHTTP(putRec, put)
+
+	if putRec.Code != http.StatusCreated {
+		t.Fatalf("PUT status = %d, want %d, body %s", putRec.Code, http.StatusCreated, putRec.Body.String())
+	}
+	if putRec.Header().Get("ETag") == "" {
+		t.Fatal("PUT response missing ETag")
+	}
+
+	get := httptest.NewRequest(http.MethodGet, "/dav/addressbooks/marko@example.com/default/contact-1.vcf", nil)
+	get.SetBasicAuth("marko@example.com", "secret123456")
+	getRec := httptest.NewRecorder()
+	handler.ServeHTTP(getRec, get)
+
+	if getRec.Code != http.StatusOK {
+		t.Fatalf("GET status = %d, want %d, body %s", getRec.Code, http.StatusOK, getRec.Body.String())
+	}
+	if got := getRec.Header().Get("Content-Type"); got != "text/vcard; charset=utf-8" {
+		t.Fatalf("content-type = %q, want vcard", got)
+	}
+	if getRec.Body.String() != vcard {
+		t.Fatalf("GET body = %q, want vcard", getRec.Body.String())
+	}
+}
+
+func TestPutRejectsDifferentAuthenticatedUser(t *testing.T) {
+	handler := NewRouter(&fakeStore{valid: true})
+	req := httptest.NewRequest(http.MethodPut, "/dav/addressbooks/other@example.com/default/contact-1.vcf", bytes.NewBufferString("BEGIN:VCARD\r\nEND:VCARD\r\n"))
+	req.SetBasicAuth("marko@example.com", "secret123456")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusForbidden)
+	}
+}
+
+func TestPutAndGetCalendarObject(t *testing.T) {
+	store := &fakeStore{valid: true}
+	handler := NewRouter(store)
+	ics := "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:event-1\r\nSUMMARY:Test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+
+	put := httptest.NewRequest(http.MethodPut, "/dav/calendars/marko@example.com/default/event-1.ics", bytes.NewBufferString(ics))
+	put.SetBasicAuth("marko@example.com", "secret123456")
+	putRec := httptest.NewRecorder()
+	handler.ServeHTTP(putRec, put)
+
+	if putRec.Code != http.StatusCreated {
+		t.Fatalf("PUT status = %d, want %d, body %s", putRec.Code, http.StatusCreated, putRec.Body.String())
+	}
+
+	get := httptest.NewRequest(http.MethodGet, "/dav/calendars/marko@example.com/default/event-1.ics", nil)
+	get.SetBasicAuth("marko@example.com", "secret123456")
+	getRec := httptest.NewRecorder()
+	handler.ServeHTTP(getRec, get)
+
+	if getRec.Code != http.StatusOK {
+		t.Fatalf("GET status = %d, want %d, body %s", getRec.Code, http.StatusOK, getRec.Body.String())
+	}
+	if got := getRec.Header().Get("Content-Type"); got != "text/calendar; charset=utf-8" {
+		t.Fatalf("content-type = %q, want calendar", got)
+	}
+	if getRec.Body.String() != ics {
+		t.Fatalf("GET body = %q, want ics", getRec.Body.String())
+	}
+}
+
 type fakeStore struct {
-	valid bool
+	valid    bool
+	contacts map[string]DAVObject
+	events   map[string]DAVObject
 }
 
 func (s *fakeStore) VerifyUserPassword(ctx context.Context, email, password string) (bool, error) {
 	return s.valid && email == "marko@example.com" && password == "secret123456", nil
+}
+
+func (s *fakeStore) PutContact(ctx context.Context, email, href string, body []byte) (DAVObject, error) {
+	if s.contacts == nil {
+		s.contacts = map[string]DAVObject{}
+	}
+	object := DAVObject{Href: href, ETag: `"contact-etag"`, Body: append([]byte(nil), body...)}
+	s.contacts[email+"/"+href] = object
+	return object, nil
+}
+
+func (s *fakeStore) GetContact(ctx context.Context, email, href string) (DAVObject, error) {
+	return s.contacts[email+"/"+href], nil
+}
+
+func (s *fakeStore) PutCalendarObject(ctx context.Context, email, href string, body []byte) (DAVObject, error) {
+	if s.events == nil {
+		s.events = map[string]DAVObject{}
+	}
+	object := DAVObject{Href: href, ETag: `"event-etag"`, Body: append([]byte(nil), body...)}
+	s.events[email+"/"+href] = object
+	return object, nil
+}
+
+func (s *fakeStore) GetCalendarObject(ctx context.Context, email, href string) (DAVObject, error) {
+	return s.events[email+"/"+href], nil
 }

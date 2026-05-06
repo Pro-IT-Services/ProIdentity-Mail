@@ -33,3 +33,40 @@ if ! printf '%s' "${auth_body}" | grep -q "/dav/addressbooks/${email}/"; then
   echo "missing addressbook home set" >&2
   exit 1
 fi
+
+echo "== vCard PUT/GET =="
+vcard="BEGIN:VCARD
+VERSION:4.0
+UID:${local_part}
+FN:DAV Probe
+EMAIL:${email}
+END:VCARD
+"
+printf '%s' "${vcard}" >/tmp/proidentity-dav-contact.vcf
+contact_code="$(curl -sS -m 5 -o /tmp/proidentity-dav-contact-put.out -w "%{http_code}" -u "${email}:${password}" -X PUT --data-binary @/tmp/proidentity-dav-contact.vcf "http://127.0.0.1:8081/dav/addressbooks/${email}/default/${local_part}.vcf")"
+echo "put_status=${contact_code}"
+if [[ "${contact_code}" != "201" ]]; then
+  cat /tmp/proidentity-dav-contact-put.out
+  exit 1
+fi
+curl -sS -m 5 -u "${email}:${password}" "http://127.0.0.1:8081/dav/addressbooks/${email}/default/${local_part}.vcf" | tee /tmp/proidentity-dav-contact-get.out | sed -n '1,8p'
+grep -q "EMAIL:${email}" /tmp/proidentity-dav-contact-get.out
+
+echo "== iCalendar PUT/GET =="
+ics="BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+UID:${local_part}-event
+SUMMARY:DAV Probe
+END:VEVENT
+END:VCALENDAR
+"
+printf '%s' "${ics}" >/tmp/proidentity-dav-event.ics
+event_code="$(curl -sS -m 5 -o /tmp/proidentity-dav-event-put.out -w "%{http_code}" -u "${email}:${password}" -X PUT --data-binary @/tmp/proidentity-dav-event.ics "http://127.0.0.1:8081/dav/calendars/${email}/default/${local_part}.ics")"
+echo "put_status=${event_code}"
+if [[ "${event_code}" != "201" ]]; then
+  cat /tmp/proidentity-dav-event-put.out
+  exit 1
+fi
+curl -sS -m 5 -u "${email}:${password}" "http://127.0.0.1:8081/dav/calendars/${email}/default/${local_part}.ics" | tee /tmp/proidentity-dav-event-get.out | sed -n '1,10p'
+grep -q "SUMMARY:DAV Probe" /tmp/proidentity-dav-event-get.out

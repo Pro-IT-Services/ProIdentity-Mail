@@ -3,13 +3,27 @@ package groupware
 import (
 	"context"
 	"encoding/xml"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 )
 
+var ErrNotFound = errors.New("not found")
+
+type DAVObject struct {
+	Href string
+	ETag string
+	Body []byte
+}
+
 type Store interface {
 	VerifyUserPassword(ctx context.Context, email, password string) (bool, error)
+	PutContact(ctx context.Context, email, href string, body []byte) (DAVObject, error)
+	GetContact(ctx context.Context, email, href string) (DAVObject, error)
+	PutCalendarObject(ctx context.Context, email, href string, body []byte) (DAVObject, error)
+	GetCalendarObject(ctx context.Context, email, href string) (DAVObject, error)
 }
 
 type handler struct {
@@ -36,37 +50,137 @@ func (h handler) dav(w http.ResponseWriter, r *http.Request) {
 	case http.MethodOptions:
 		w.WriteHeader(http.StatusNoContent)
 	case "PROPFIND":
-		if !h.authorized(w, r) {
+		if _, ok := h.authorized(w, r); !ok {
 			return
 		}
 		writeMultiStatus(w, r.URL.Path)
+	case http.MethodPut:
+		email, ok := h.authorized(w, r)
+		if !ok {
+			return
+		}
+		h.putObject(w, r, email)
+	case http.MethodGet:
+		email, ok := h.authorized(w, r)
+		if !ok {
+			return
+		}
+		h.getObject(w, r, email)
 	default:
-		w.Header().Set("Allow", "OPTIONS, PROPFIND")
+		w.Header().Set("Allow", "OPTIONS, PROPFIND, GET, PUT")
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
 }
 
-func (h handler) authorized(w http.ResponseWriter, r *http.Request) bool {
+func (h handler) authorized(w http.ResponseWriter, r *http.Request) (string, bool) {
 	if h.store == nil {
 		writeUnauthorized(w)
-		return false
+		return "", false
 	}
 	email, password, ok := r.BasicAuth()
 	if !ok || email == "" || password == "" {
 		writeUnauthorized(w)
-		return false
+		return "", false
 	}
-	valid, err := h.store.VerifyUserPassword(r.Context(), strings.ToLower(email), password)
+	email = strings.ToLower(email)
+	valid, err := h.store.VerifyUserPassword(r.Context(), email, password)
 	if err != nil || !valid {
 		writeUnauthorized(w)
-		return false
+		return "", false
 	}
-	return true
+	return email, true
 }
 
 func writeUnauthorized(w http.ResponseWriter) {
 	w.Header().Set("WWW-Authenticate", `Basic realm="ProIdentity DAV", charset="UTF-8"`)
 	http.Error(w, "unauthorized", http.StatusUnauthorized)
+}
+
+func (h handler) putObject(w http.ResponseWriter, r *http.Request, authEmail string) {
+	kind, pathEmail, href, ok := objectPath(r.URL.Path)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	if !sameEmail(authEmail, pathEmail) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 10<<20))
+	if err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+	var object DAVObject
+	switch kind {
+	case "addressbooks":
+		object, err = h.store.PutContact(r.Context(), authEmail, href, body)
+	case "calendars":
+		object, err = h.store.PutCalendarObject(r.Context(), authEmail, href, body)
+	default:
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		http.Error(w, "store object failed", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("ETag", object.ETag)
+	w.WriteHeader(http.StatusCreated)
+}
+
+func (h handler) getObject(w http.ResponseWriter, r *http.Request, authEmail string) {
+	kind, pathEmail, href, ok := objectPath(r.URL.Path)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	if !sameEmail(authEmail, pathEmail) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	var object DAVObject
+	var err error
+	switch kind {
+	case "addressbooks":
+		object, err = h.store.GetContact(r.Context(), authEmail, href)
+		w.Header().Set("Content-Type", "text/vcard; charset=utf-8")
+	case "calendars":
+		object, err = h.store.GetCalendarObject(r.Context(), authEmail, href)
+		w.Header().Set("Content-Type", "text/calendar; charset=utf-8")
+	default:
+		http.NotFound(w, r)
+		return
+	}
+	if errors.Is(err, ErrNotFound) || len(object.Body) == 0 {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		http.Error(w, "get object failed", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("ETag", object.ETag)
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(object.Body)
+}
+
+func objectPath(path string) (kind, email, href string, ok bool) {
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	if len(parts) != 5 || parts[0] != "dav" || parts[3] != "default" || parts[4] == "" {
+		return "", "", "", false
+	}
+	if parts[1] != "addressbooks" && parts[1] != "calendars" {
+		return "", "", "", false
+	}
+	if !strings.Contains(parts[2], "@") {
+		return "", "", "", false
+	}
+	return parts[1], strings.ToLower(parts[2]), parts[4], true
+}
+
+func sameEmail(left, right string) bool {
+	return strings.EqualFold(left, right)
 }
 
 func writeMultiStatus(w http.ResponseWriter, path string) {
