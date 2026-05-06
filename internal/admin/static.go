@@ -38,7 +38,7 @@ const adminIndexHTML = `<!doctype html>
       min-height: 100vh;
       background: var(--background);
       color: var(--ink);
-      font: 14px/1.5 "Public Sans", system-ui, sans-serif;
+      font: 13px/1.45 "Public Sans", system-ui, sans-serif;
       letter-spacing: 0;
     }
     .material-symbols-outlined {
@@ -46,22 +46,22 @@ const adminIndexHTML = `<!doctype html>
       font-size: 22px;
       line-height: 1;
     }
-    .layout { min-height: 100vh; padding-left: 280px; }
+    .layout { min-height: 100vh; padding-left: 240px; }
     aside {
       position: fixed;
       inset: 0 auto 0 0;
-      width: 280px;
+      width: 240px;
       background: var(--surface-rail);
       border-right: 1px solid rgba(118,117,134,.22);
       display: flex;
       flex-direction: column;
-      padding: 24px 16px;
+      padding: 18px 12px;
       z-index: 20;
     }
-    .brand { display: flex; gap: 14px; align-items: center; margin-bottom: 52px; }
+    .brand { display: flex; gap: 12px; align-items: center; margin-bottom: 36px; }
     .brand-mark {
-      width: 42px;
-      height: 42px;
+      width: 36px;
+      height: 36px;
       border-radius: 8px;
       background: var(--primary);
       color: white;
@@ -69,21 +69,21 @@ const adminIndexHTML = `<!doctype html>
       place-items: center;
       box-shadow: 0 8px 18px rgba(70,72,212,.25);
     }
-    .brand h1 { margin: 0; color: var(--primary); font-size: 24px; line-height: 1; font-weight: 700; }
+    .brand h1 { margin: 0; color: var(--primary); font-size: 20px; line-height: 1; font-weight: 700; }
     .brand p { margin: 4px 0 0; color: var(--ink); font-size: 12px; font-weight: 600; letter-spacing: .08em; }
     nav { display: grid; gap: 4px; }
     .nav-item {
       display: flex;
       align-items: center;
-      gap: 14px;
+      gap: 12px;
       width: 100%;
       border: 0;
       background: transparent;
       color: #252838;
-      padding: 12px 14px;
+      padding: 9px 12px;
       border-radius: 8px;
       font: inherit;
-      font-size: 16px;
+      font-size: 14px;
       cursor: pointer;
       text-align: left;
     }
@@ -97,7 +97,7 @@ const adminIndexHTML = `<!doctype html>
     .sidebar-bottom {
       margin-top: auto;
       border-top: 1px solid rgba(118,117,134,.22);
-      padding-top: 22px;
+      padding-top: 16px;
       display: grid;
       gap: 4px;
     }
@@ -105,17 +105,17 @@ const adminIndexHTML = `<!doctype html>
       position: sticky;
       top: 0;
       z-index: 10;
-      height: 64px;
+      height: 56px;
       background: rgba(247,249,251,.94);
       backdrop-filter: blur(12px);
       border-bottom: 1px solid var(--outline);
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 0 32px;
+      padding: 0 24px;
     }
-    .top-left { display: flex; align-items: center; gap: 28px; }
-    .page-label { margin: 0; font-size: 22px; line-height: 1; }
+    .top-left { display: flex; align-items: center; gap: 22px; }
+    .page-label { margin: 0; font-size: 19px; line-height: 1; }
     .search {
       width: min(420px, 42vw);
       display: flex;
@@ -124,7 +124,7 @@ const adminIndexHTML = `<!doctype html>
       background: var(--surface-soft);
       border-radius: 8px;
       padding: 0 14px;
-      min-height: 42px;
+      min-height: 36px;
       color: var(--outline-strong);
     }
     .search input {
@@ -142,14 +142,14 @@ const adminIndexHTML = `<!doctype html>
       gap: 8px;
       border-radius: 999px;
       background: var(--surface-muted);
-      padding: 9px 18px;
+      padding: 7px 14px;
       color: #2a2d3b;
       font-weight: 700;
       letter-spacing: .04em;
     }
     .avatar {
-      width: 34px;
-      height: 34px;
+      width: 30px;
+      height: 30px;
       border-radius: 50%;
       background: var(--primary);
       color: white;
@@ -157,35 +157,35 @@ const adminIndexHTML = `<!doctype html>
       place-items: center;
       font-weight: 700;
     }
-    main { padding: 36px 32px 42px; max-width: 1440px; margin: 0 auto; }
+    main { padding: 26px 28px 34px; max-width: 1360px; margin: 0 auto; }
     .hero {
       display: flex;
       justify-content: space-between;
       gap: 24px;
       align-items: end;
-      margin-bottom: 32px;
+      margin-bottom: 22px;
     }
-    .hero h2 { margin: 0; font-size: 34px; line-height: 1.15; }
-    .hero p { margin: 8px 0 0; color: var(--muted); font-size: 16px; }
+    .hero h2 { margin: 0; font-size: 28px; line-height: 1.15; }
+    .hero p { margin: 6px 0 0; color: var(--muted); font-size: 14px; }
     button, input { font: inherit; }
     .primary-button {
-      min-height: 54px;
+      min-height: 42px;
       border: 0;
       border-radius: 8px;
-      padding: 0 24px;
+      padding: 0 18px;
       display: inline-flex;
       align-items: center;
       gap: 12px;
       background: var(--primary);
       color: white;
       font-weight: 700;
-      font-size: 16px;
+      font-size: 14px;
       cursor: pointer;
       box-shadow: 0 8px 18px rgba(70,72,212,.22);
     }
     .primary-button:hover { background: var(--primary-strong); }
     .secondary-button {
-      min-height: 42px;
+      min-height: 36px;
       border: 1px solid var(--outline);
       border-radius: 8px;
       background: var(--surface);
@@ -200,8 +200,8 @@ const adminIndexHTML = `<!doctype html>
     .stats {
       display: grid;
       grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 24px;
-      margin-bottom: 32px;
+      gap: 16px;
+      margin-bottom: 22px;
     }
     .card {
       background: var(--surface);
@@ -209,11 +209,11 @@ const adminIndexHTML = `<!doctype html>
       border-radius: 12px;
       box-shadow: var(--shadow);
     }
-    .stat-card { padding: 26px; min-height: 160px; }
-    .stat-top { display: flex; justify-content: space-between; align-items: start; margin-bottom: 20px; }
+    .stat-card { padding: 18px; min-height: 118px; }
+    .stat-top { display: flex; justify-content: space-between; align-items: start; margin-bottom: 14px; }
     .stat-icon {
-      width: 54px;
-      height: 54px;
+      width: 42px;
+      height: 42px;
       border-radius: 8px;
       display: grid;
       place-items: center;
@@ -223,12 +223,12 @@ const adminIndexHTML = `<!doctype html>
     .stat-icon.success { background: var(--success-soft); color: var(--success); }
     .stat-icon.danger { background: var(--danger-soft); color: var(--danger); }
     .trend { color: var(--success); background: #ecfdf3; border-radius: 999px; padding: 3px 10px; font-weight: 700; }
-    .stat-value { font-size: 46px; line-height: 1; font-weight: 700; letter-spacing: 0; }
-    .stat-label { margin-top: 8px; color: #202333; font-size: 15px; font-weight: 600; }
+    .stat-value { font-size: 34px; line-height: 1; font-weight: 700; letter-spacing: 0; }
+    .stat-label { margin-top: 6px; color: #202333; font-size: 13px; font-weight: 600; }
     .pulse {
       background: linear-gradient(135deg, #4648d4, #5558ee);
       color: white;
-      padding: 24px;
+      padding: 18px;
       overflow: hidden;
       position: relative;
     }
@@ -243,21 +243,21 @@ const adminIndexHTML = `<!doctype html>
       transform: rotate(-42deg);
     }
     .pulse .small { letter-spacing: .18em; font-size: 12px; opacity: .9; }
-    .pulse .money { margin-top: 10px; font-size: 30px; font-weight: 700; }
+    .pulse .money { margin-top: 8px; font-size: 24px; font-weight: 700; }
     .panel { overflow: hidden; }
     .panel-head {
       display: flex;
       justify-content: space-between;
       align-items: center;
       gap: 16px;
-      padding: 26px;
+      padding: 18px 20px;
       border-bottom: 1px solid var(--outline);
     }
-    .panel-head h3 { margin: 0; font-size: 22px; }
+    .panel-head h3 { margin: 0; font-size: 18px; }
     .panel-actions { display: flex; gap: 10px; flex-wrap: wrap; }
     .table-wrap { overflow-x: auto; }
     table { width: 100%; border-collapse: collapse; }
-    th, td { padding: 18px 26px; border-bottom: 1px solid #e6e8ef; text-align: left; vertical-align: middle; }
+    th, td { padding: 12px 18px; border-bottom: 1px solid #e6e8ef; text-align: left; vertical-align: middle; }
     th {
       background: var(--surface-soft);
       color: #232638;
@@ -268,8 +268,8 @@ const adminIndexHTML = `<!doctype html>
     tbody tr:hover { background: #f8f9ff; }
     .identity { display: flex; align-items: center; gap: 14px; }
     .initials {
-      width: 42px;
-      height: 42px;
+      width: 34px;
+      height: 34px;
       border-radius: 50%;
       display: grid;
       place-items: center;
@@ -295,15 +295,15 @@ const adminIndexHTML = `<!doctype html>
     .forms {
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 18px;
-      margin-bottom: 28px;
+      gap: 14px;
+      margin-bottom: 20px;
     }
-    form.card { padding: 20px; display: grid; gap: 12px; }
-    form h3 { margin: 0 0 4px; font-size: 18px; }
+    form.card { padding: 16px; display: grid; gap: 10px; }
+    form h3 { margin: 0 0 4px; font-size: 16px; }
     label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
     input {
       width: 100%;
-      min-height: 42px;
+      min-height: 36px;
       border: 1px solid #cbd5e1;
       border-radius: 8px;
       padding: 8px 12px;
@@ -311,13 +311,13 @@ const adminIndexHTML = `<!doctype html>
       color: var(--ink);
     }
     input:focus { outline: 2px solid rgba(70,72,212,.18); border-color: var(--primary); }
-    .dns-grid { display: grid; gap: 10px; padding: 20px 26px 26px; }
+    .dns-grid { display: grid; gap: 8px; padding: 16px 20px 20px; }
     .dns-record {
       display: grid;
       grid-template-columns: 80px 1fr 2fr;
       gap: 12px;
       align-items: start;
-      padding: 12px;
+      padding: 10px;
       background: #fbfcff;
       border: 1px solid #e5e7ef;
       border-radius: 8px;
@@ -331,7 +331,7 @@ const adminIndexHTML = `<!doctype html>
       gap: 16px;
       align-items: center;
       color: #6d6a80;
-      margin-top: 72px;
+      margin-top: 44px;
     }
     .compliance { display: flex; align-items: center; gap: 12px; }
     .compliance .material-symbols-outlined { color: var(--success); }

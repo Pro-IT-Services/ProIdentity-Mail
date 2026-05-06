@@ -33,7 +33,7 @@ const webmailIndexHTML = `<!doctype html>
       overflow: hidden;
       background: var(--background);
       color: var(--ink);
-      font: 14px/1.5 "Public Sans", system-ui, sans-serif;
+      font: 13px/1.45 "Public Sans", system-ui, sans-serif;
       letter-spacing: 0;
     }
     .material-symbols-outlined {
@@ -42,34 +42,34 @@ const webmailIndexHTML = `<!doctype html>
       line-height: 1;
     }
     header {
-      height: 64px;
+      height: 54px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 0 24px;
+      padding: 0 20px;
       border-bottom: 1px solid var(--outline);
       background: var(--background);
     }
-    .brand { display: flex; align-items: center; gap: 16px; color: var(--primary); }
-    .brand h1 { margin: 0; font-size: 26px; line-height: 1; font-weight: 700; }
-    .top-actions { display: flex; align-items: center; gap: 24px; }
+    .brand { display: flex; align-items: center; gap: 12px; color: var(--primary); }
+    .brand h1 { margin: 0; font-size: 22px; line-height: 1; font-weight: 700; }
+    .top-actions { display: flex; align-items: center; gap: 18px; }
     .search {
       width: min(390px, 34vw);
-      min-height: 46px;
+      min-height: 38px;
       display: flex;
       align-items: center;
       gap: 14px;
       background: #e3e5e7;
       border-radius: 999px;
-      padding: 0 20px;
+      padding: 0 16px;
       color: var(--outline-strong);
       font-weight: 600;
       letter-spacing: .08em;
     }
     .search input { width: 100%; border: 0; outline: 0; background: transparent; color: var(--ink); font: inherit; }
     .avatar {
-      width: 40px;
-      height: 40px;
+      width: 34px;
+      height: 34px;
       border-radius: 50%;
       background: #5d60f0;
       color: white;
@@ -78,9 +78,9 @@ const webmailIndexHTML = `<!doctype html>
       font-weight: 700;
     }
     .app {
-      height: calc(100vh - 64px);
+      height: calc(100vh - 54px);
       display: grid;
-      grid-template-columns: 280px 400px minmax(420px, 1fr) 64px;
+      grid-template-columns: 240px 340px minmax(400px, 1fr) 54px;
       overflow: hidden;
     }
     aside {
@@ -88,11 +88,11 @@ const webmailIndexHTML = `<!doctype html>
       border-right: 1px solid var(--outline);
       display: flex;
       flex-direction: column;
-      padding: 24px 16px;
+      padding: 18px 12px;
       min-width: 0;
     }
     .compose {
-      min-height: 60px;
+      min-height: 48px;
       border: 0;
       border-radius: 12px;
       background: #5b5ef1;
@@ -100,31 +100,31 @@ const webmailIndexHTML = `<!doctype html>
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 12px;
+      gap: 10px;
       font: inherit;
       font-weight: 700;
-      font-size: 20px;
+      font-size: 17px;
       cursor: pointer;
       box-shadow: 0 10px 22px rgba(70,72,212,.22);
-      margin-bottom: 28px;
+      margin-bottom: 22px;
     }
     .folder-list { display: grid; gap: 8px; }
     .folder {
-      min-height: 48px;
+      min-height: 40px;
       border: 0;
       border-radius: 999px;
       background: transparent;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 12px;
-      padding: 0 18px;
+      gap: 10px;
+      padding: 0 14px;
       color: #272a3a;
       font: inherit;
-      font-size: 17px;
+      font-size: 15px;
       cursor: pointer;
     }
-    .folder span:first-child { display: flex; align-items: center; gap: 16px; }
+    .folder span:first-child { display: flex; align-items: center; gap: 12px; }
     .folder.active { background: var(--secondary-soft); color: #3f465c; font-weight: 700; }
     .count {
       min-width: 32px;
@@ -138,9 +138,9 @@ const webmailIndexHTML = `<!doctype html>
     .labels {
       margin-top: auto;
       border-top: 1px solid var(--outline);
-      padding: 24px 10px 0;
+      padding: 18px 8px 0;
       display: grid;
-      gap: 12px;
+      gap: 10px;
       color: var(--muted);
     }
     .labels h3 { margin: 0 0 4px; color: var(--outline-strong); font-size: 12px; letter-spacing: .18em; }
@@ -156,15 +156,15 @@ const webmailIndexHTML = `<!doctype html>
       overflow: hidden;
     }
     .pane-head {
-      min-height: 62px;
+      min-height: 52px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 0 18px;
+      padding: 0 16px;
       border-bottom: 1px solid var(--outline);
       background: var(--surface-soft);
     }
-    .pane-head h2 { margin: 0; font-size: 22px; }
+    .pane-head h2 { margin: 0; font-size: 19px; }
     .message-list { overflow: auto; flex: 1; }
     .message {
       border: 0;
@@ -172,20 +172,20 @@ const webmailIndexHTML = `<!doctype html>
       background: var(--surface);
       width: 100%;
       text-align: left;
-      padding: 20px 18px;
+      padding: 14px 16px;
       cursor: pointer;
       border-left: 4px solid transparent;
       display: grid;
-      gap: 6px;
+      gap: 5px;
       color: var(--ink);
     }
     .message:hover { background: #fafaff; }
     .message.active { background: rgba(218,226,253,.35); border-left-color: var(--primary); }
     .message-top { display: flex; justify-content: space-between; gap: 12px; }
-    .from { font-weight: 700; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .time { color: #6b6880; font-size: 13px; font-weight: 700; letter-spacing: .06em; white-space: nowrap; }
-    .subject { font-weight: 700; font-size: 17px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .preview { color: var(--muted); font-size: 15px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .from { font-weight: 700; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .time { color: #6b6880; font-size: 12px; font-weight: 700; letter-spacing: .04em; white-space: nowrap; }
+    .subject { font-weight: 700; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .preview { color: var(--muted); font-size: 13px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
     .tag {
       justify-self: start;
       border-radius: 4px;
@@ -205,55 +205,55 @@ const webmailIndexHTML = `<!doctype html>
       min-width: 0;
     }
     .toolbar {
-      min-height: 58px;
+      min-height: 50px;
       border-bottom: 1px solid var(--outline);
       display: flex;
       align-items: center;
-      gap: 24px;
-      padding: 0 28px;
+      gap: 18px;
+      padding: 0 22px;
       color: #292b3c;
       background: var(--surface);
     }
     .security-strip {
-      margin: 32px 34px 24px;
+      margin: 24px 28px 18px;
       border: 1px solid var(--outline);
       border-radius: 12px;
       background: #f8f9ff;
-      min-height: 94px;
+      min-height: 72px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 24px;
-      padding: 24px;
+      gap: 18px;
+      padding: 18px;
       color: #4b536b;
       font-weight: 700;
       letter-spacing: .04em;
       overflow: hidden;
     }
-    .security-items { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; }
+    .security-items { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
     .security-items span { display: inline-flex; align-items: center; gap: 8px; }
     .security-items .material-symbols-outlined { color: var(--primary); }
-    .reader-content { padding: 8px 34px 48px; max-width: 820px; }
-    .reader h2 { margin: 0 0 26px; font-size: 34px; line-height: 1.15; }
-    .sender-row { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 36px; }
-    .sender { display: flex; align-items: center; gap: 16px; }
+    .reader-content { padding: 6px 28px 36px; max-width: 760px; }
+    .reader h2 { margin: 0 0 20px; font-size: 28px; line-height: 1.15; }
+    .sender-row { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 26px; }
+    .sender { display: flex; align-items: center; gap: 12px; }
     .sender-icon {
-      width: 48px;
-      height: 48px;
+      width: 40px;
+      height: 40px;
       border-radius: 50%;
       background: var(--surface-muted);
       color: var(--primary);
       display: grid;
       place-items: center;
     }
-    .sender strong { font-size: 21px; }
-    .body { font-size: 19px; line-height: 1.55; }
+    .sender strong { font-size: 18px; }
+    .body { font-size: 16px; line-height: 1.55; }
     .recommend {
-      margin: 24px 0;
+      margin: 18px 0;
       border: 1px solid var(--outline);
       border-radius: 8px;
       background: var(--surface-muted);
-      padding: 24px;
+      padding: 18px;
     }
     .recommend h3 { margin: 0 0 12px; color: var(--primary); font-size: 15px; letter-spacing: .08em; }
     .rail {
@@ -261,14 +261,14 @@ const webmailIndexHTML = `<!doctype html>
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 32px;
-      padding-top: 34px;
+      gap: 24px;
+      padding-top: 26px;
       background: var(--surface-soft);
     }
-    .rail .bottom { margin-top: auto; display: grid; gap: 30px; padding-bottom: 28px; }
+    .rail .bottom { margin-top: auto; display: grid; gap: 24px; padding-bottom: 22px; }
     .login {
       position: fixed;
-      inset: 64px 0 0;
+      inset: 54px 0 0;
       background: rgba(247,249,251,.92);
       backdrop-filter: blur(12px);
       z-index: 30;
@@ -283,14 +283,14 @@ const webmailIndexHTML = `<!doctype html>
       border-radius: 16px;
       background: white;
       box-shadow: 0 20px 48px rgba(15,23,42,.12);
-      padding: 30px;
+      padding: 24px;
       display: grid;
       gap: 16px;
     }
-    .login-card h2 { margin: 0; font-size: 28px; }
+    .login-card h2 { margin: 0; font-size: 24px; }
     label { display: grid; gap: 7px; color: var(--muted); font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
     input {
-      min-height: 44px;
+      min-height: 38px;
       border: 1px solid var(--outline);
       border-radius: 8px;
       padding: 8px 12px;
@@ -298,7 +298,7 @@ const webmailIndexHTML = `<!doctype html>
     }
     input:focus { outline: 2px solid rgba(70,72,212,.18); border-color: var(--primary); }
     .primary-button {
-      min-height: 46px;
+      min-height: 40px;
       border: 0;
       border-radius: 8px;
       background: var(--primary);
