@@ -2,6 +2,7 @@ package admin
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
@@ -27,12 +28,21 @@ type Store interface {
 
 type handler struct {
 	store Store
+	auth  AuthConfig
 }
 
-func NewRouter(store Store) http.Handler {
-	h := handler{store: store}
+type AuthConfig struct {
+	Username string
+	Password string
+}
+
+func NewRouter(store Store, authConfig ...AuthConfig) http.Handler {
+	var auth AuthConfig
+	if len(authConfig) > 0 {
+		auth = authConfig[0]
+	}
+	h := handler{store: store, auth: auth}
 	r := chi.NewRouter()
-	r.Get("/", h.index)
 	r.Get("/healthz", health)
 	r.Get("/.well-known/autoconfig/mail/config-v1.1.xml", h.mailAutoconfig)
 	r.Get("/mail/config-v1.1.xml", h.mailAutoconfig)
@@ -40,13 +50,17 @@ func NewRouter(store Store) http.Handler {
 	r.Head("/.well-known/caldav", wellKnownDAV)
 	r.Get("/.well-known/carddav", wellKnownDAV)
 	r.Head("/.well-known/carddav", wellKnownDAV)
-	r.Get("/api/v1/tenants", h.listTenants)
-	r.Post("/api/v1/tenants", h.createTenant)
-	r.Get("/api/v1/domains", h.listDomains)
-	r.Post("/api/v1/domains", h.createDomain)
-	r.Get("/api/v1/domains/{domainID}/dns", h.getDomainDNS)
-	r.Get("/api/v1/users", h.listUsers)
-	r.Post("/api/v1/users", h.createUser)
+	r.Group(func(protected chi.Router) {
+		protected.Use(h.requireAdmin)
+		protected.Get("/", h.index)
+		protected.Get("/api/v1/tenants", h.listTenants)
+		protected.Post("/api/v1/tenants", h.createTenant)
+		protected.Get("/api/v1/domains", h.listDomains)
+		protected.Post("/api/v1/domains", h.createDomain)
+		protected.Get("/api/v1/domains/{domainID}/dns", h.getDomainDNS)
+		protected.Get("/api/v1/users", h.listUsers)
+		protected.Post("/api/v1/users", h.createUser)
+	})
 	return r
 }
 
@@ -58,6 +72,22 @@ func health(w http.ResponseWriter, r *http.Request) {
 func (h handler) index(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = w.Write([]byte(adminIndexHTML))
+}
+
+func (h handler) requireAdmin(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if h.auth.Username == "" && h.auth.Password == "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		username, password, ok := r.BasicAuth()
+		if !ok || subtle.ConstantTimeCompare([]byte(username), []byte(h.auth.Username)) != 1 || subtle.ConstantTimeCompare([]byte(password), []byte(h.auth.Password)) != 1 {
+			w.Header().Set("WWW-Authenticate", `Basic realm="ProIdentity Admin", charset="UTF-8"`)
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (h handler) mailAutoconfig(w http.ResponseWriter, r *http.Request) {

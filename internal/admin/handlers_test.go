@@ -45,6 +45,46 @@ func TestAdminIndexServesWebUI(t *testing.T) {
 	}
 }
 
+func TestAdminIndexRequiresAuthWhenConfigured(t *testing.T) {
+	handler := NewRouter(&fakeStore{}, AuthConfig{Username: "admin", Password: "secret"})
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+	if got := rec.Header().Get("WWW-Authenticate"); got == "" {
+		t.Fatal("WWW-Authenticate header is empty")
+	}
+}
+
+func TestAdminAPIAcceptsConfiguredAuth(t *testing.T) {
+	handler := NewRouter(&fakeStore{}, AuthConfig{Username: "admin", Password: "secret"})
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/tenants", nil)
+	req.SetBasicAuth("admin", "secret")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+}
+
+func TestDiscoveryStaysPublicWhenAdminAuthConfigured(t *testing.T) {
+	handler := NewRouter(&fakeStore{}, AuthConfig{Username: "admin", Password: "secret"})
+	req := httptest.NewRequest(http.MethodGet, "/.well-known/autoconfig/mail/config-v1.1.xml?emailaddress=marko@example.com", nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+}
+
 func TestListEndpoints(t *testing.T) {
 	store := &fakeStore{}
 	handler := NewRouter(store)

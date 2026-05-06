@@ -12,6 +12,8 @@ type Config struct {
 	DBPassword    string
 	ConfigDir     string
 	MailHostname  string
+	AdminUsername string
+	AdminPassword string
 }
 
 func LoadConfig() (Config, error) {
@@ -25,6 +27,8 @@ func LoadConfig() (Config, error) {
 		DBPassword:    os.Getenv("PROIDENTITY_DB_PASSWORD"),
 		ConfigDir:     valueOrDefault(os.Getenv("PROIDENTITY_CONFIG_DIR"), "/etc/proidentity-mail/generated"),
 		MailHostname:  valueOrDefault(os.Getenv("PROIDENTITY_MAIL_HOSTNAME"), "mail.local"),
+		AdminUsername: os.Getenv("PROIDENTITY_ADMIN_USERNAME"),
+		AdminPassword: os.Getenv("PROIDENTITY_ADMIN_PASSWORD"),
 	}
 	return cfg, nil
 }

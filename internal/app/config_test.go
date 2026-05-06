@@ -10,6 +10,8 @@ func TestLoadConfigDefaults(t *testing.T) {
 	t.Setenv("PROIDENTITY_HTTP_ADDR", "")
 	t.Setenv("PROIDENTITY_GROUPWARE_ADDR", "")
 	t.Setenv("PROIDENTITY_WEBMAIL_ADDR", "")
+	t.Setenv("PROIDENTITY_ADMIN_USERNAME", "")
+	t.Setenv("PROIDENTITY_ADMIN_PASSWORD", "")
 	t.Setenv("PROIDENTITY_CONFIG_DIR", "")
 	t.Setenv("PROIDENTITY_MAIL_HOSTNAME", "")
 
@@ -25,6 +27,9 @@ func TestLoadConfigDefaults(t *testing.T) {
 	}
 	if cfg.WebmailAddr != "0.0.0.0:8082" {
 		t.Fatalf("WebmailAddr = %q, want default", cfg.WebmailAddr)
+	}
+	if cfg.AdminUsername != "" || cfg.AdminPassword != "" {
+		t.Fatalf("admin credentials should default empty")
 	}
 	if cfg.ConfigDir != "/etc/proidentity-mail/generated" {
 		t.Fatalf("ConfigDir = %q, want default", cfg.ConfigDir)
@@ -42,6 +47,8 @@ func TestLoadConfigDefaults(t *testing.T) {
 
 func TestLoadConfigRequiresDSNForDatabaseUse(t *testing.T) {
 	t.Setenv("PROIDENTITY_DB_DSN", "mail:secret@tcp(127.0.0.1:3306)/proidentity_mail?parseTime=true")
+	t.Setenv("PROIDENTITY_ADMIN_USERNAME", "root")
+	t.Setenv("PROIDENTITY_ADMIN_PASSWORD", "secret")
 
 	cfg, err := LoadConfig()
 	if err != nil {
@@ -49,5 +56,8 @@ func TestLoadConfigRequiresDSNForDatabaseUse(t *testing.T) {
 	}
 	if cfg.DBDSN == "" {
 		t.Fatal("DBDSN is empty")
+	}
+	if cfg.AdminUsername != "root" || cfg.AdminPassword != "secret" {
+		t.Fatalf("admin credentials not loaded")
 	}
 }

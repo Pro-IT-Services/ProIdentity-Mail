@@ -24,7 +24,7 @@ func main() {
 		sqlStore := admin.NewSQLStore(conn)
 		store = sqlStore
 	}
-	server := app.NewHTTPServer(cfg, store)
+	server := app.NewHTTPServer(cfg, store, admin.AuthConfig{Username: cfg.AdminUsername, Password: cfg.AdminPassword})
 	log.Printf("webadmin listening on %s", cfg.HTTPAddr)
 	if err := server.ListenAndServe(); err != nil {
 		log.Fatalf("webadmin stopped: %v", err)

@@ -34,6 +34,8 @@ PROIDENTITY_DB_PASSWORD=${db_password}
 PROIDENTITY_DB_DSN='proidentity_mail:${db_password}@tcp(127.0.0.1:3306)/proidentity_mail?parseTime=true&multiStatements=true'
 PROIDENTITY_CONFIG_DIR=/etc/proidentity-mail/generated
 PROIDENTITY_MAIL_HOSTNAME=mail.local
+PROIDENTITY_ADMIN_USERNAME=admin
+PROIDENTITY_ADMIN_PASSWORD=$(openssl rand -hex 18)
 EOF
   chmod 0640 /etc/proidentity-mail/proidentity-mail.env
 fi
@@ -43,6 +45,12 @@ if ! grep -q '^PROIDENTITY_GROUPWARE_ADDR=' /etc/proidentity-mail/proidentity-ma
 fi
 if ! grep -q '^PROIDENTITY_WEBMAIL_ADDR=' /etc/proidentity-mail/proidentity-mail.env; then
   printf '\nPROIDENTITY_WEBMAIL_ADDR=0.0.0.0:8082\n' >> /etc/proidentity-mail/proidentity-mail.env
+fi
+if ! grep -q '^PROIDENTITY_ADMIN_USERNAME=' /etc/proidentity-mail/proidentity-mail.env; then
+  printf '\nPROIDENTITY_ADMIN_USERNAME=admin\n' >> /etc/proidentity-mail/proidentity-mail.env
+fi
+if ! grep -q '^PROIDENTITY_ADMIN_PASSWORD=' /etc/proidentity-mail/proidentity-mail.env; then
+  printf '\nPROIDENTITY_ADMIN_PASSWORD=%s\n' "$(openssl rand -hex 18)" >> /etc/proidentity-mail/proidentity-mail.env
 fi
 
 usermod -a -G vmail proidentity || true
