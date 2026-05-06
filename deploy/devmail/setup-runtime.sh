@@ -3,7 +3,7 @@ set -euo pipefail
 
 id proidentity >/dev/null 2>&1 || useradd --system --home /opt/proidentity-mail --shell /usr/sbin/nologin proidentity
 
-mkdir -p /etc/proidentity-mail/generated /opt/proidentity-mail/bin
+mkdir -p /etc/proidentity-mail/generated /opt/proidentity-mail/bin /var/backups/proidentity-mail
 install -m 0755 /tmp/webadmin /opt/proidentity-mail/bin/webadmin
 install -m 0755 /tmp/mailctl /opt/proidentity-mail/bin/mailctl
 install -m 0755 /tmp/groupware /opt/proidentity-mail/bin/groupware
@@ -12,6 +12,8 @@ install -m 0644 /tmp/proidentity-devmail/proidentity-webadmin.service /etc/syste
 install -m 0644 /tmp/proidentity-devmail/proidentity-groupware.service /etc/systemd/system/proidentity-groupware.service
 install -m 0644 /tmp/proidentity-devmail/proidentity-webmail.service /etc/systemd/system/proidentity-webmail.service
 install -m 0644 /tmp/proidentity-devmail/proidentity-mailctl.service /etc/systemd/system/proidentity-mailctl.service
+install -m 0644 /tmp/proidentity-devmail/proidentity-backup.service /etc/systemd/system/proidentity-backup.service
+install -m 0644 /tmp/proidentity-devmail/proidentity-backup.timer /etc/systemd/system/proidentity-backup.timer
 install -m 0755 /tmp/proidentity-devmail/apply-mail-config.sh /opt/proidentity-mail/bin/apply-mail-config
 
 if [[ ! -f /etc/proidentity-mail/proidentity-mail.env ]]; then
@@ -55,7 +57,10 @@ fi
 
 usermod -a -G vmail proidentity || true
 chown -R proidentity:proidentity /etc/proidentity-mail /opt/proidentity-mail
+chown root:root /var/backups/proidentity-mail
 chmod 0750 /etc/proidentity-mail /etc/proidentity-mail/generated /opt/proidentity-mail /opt/proidentity-mail/bin
+chmod 0750 /var/backups/proidentity-mail
 
 systemctl daemon-reload
+systemctl enable --now proidentity-backup.timer
 echo "runtime setup complete"

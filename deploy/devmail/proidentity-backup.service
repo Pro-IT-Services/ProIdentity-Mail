@@ -1,0 +1,22 @@
+[Unit]
+Description=ProIdentity Mail Backup
+Wants=mariadb.service
+After=mariadb.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/proidentity-mail/proidentity-mail.env
+Environment=PROIDENTITY_BACKUP_DIR=/var/backups/proidentity-mail
+Environment=PROIDENTITY_BACKUP_KEEP_DAILY=7
+Environment=PROIDENTITY_BACKUP_KEEP_WEEKLY=4
+Environment=PROIDENTITY_BACKUP_KEEP_MONTHLY=12
+ExecStart=/opt/proidentity-mail/bin/mailctl backup --output-dir ${PROIDENTITY_BACKUP_DIR} --prune-after --keep-daily ${PROIDENTITY_BACKUP_KEEP_DAILY} --keep-weekly ${PROIDENTITY_BACKUP_KEEP_WEEKLY} --keep-monthly ${PROIDENTITY_BACKUP_KEEP_MONTHLY}
+User=root
+Group=root
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/backups/proidentity-mail /tmp
+ReadOnlyPaths=/etc/proidentity-mail /var/vmail /var/lib/proidentity-mail /var/lib/rspamd/dkim /etc/nginx /etc/letsencrypt

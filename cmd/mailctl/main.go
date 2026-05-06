@@ -29,7 +29,7 @@ import (
 func main() {
 	flag.Parse()
 	if flag.NArg() == 0 {
-		fmt.Fprintln(os.Stderr, "usage: mailctl migrate|render|health|seed-dev|rotate-admin-password|quarantine-message|release-quarantine|sync-rspamd-policy|render-proxy|sync-proxy|backup|backup-verify|restore")
+		fmt.Fprintln(os.Stderr, "usage: mailctl migrate|render|health|seed-dev|rotate-admin-password|quarantine-message|release-quarantine|sync-rspamd-policy|render-proxy|sync-proxy|backup|backup-prune|backup-verify|restore")
 		os.Exit(2)
 	}
 
@@ -61,6 +61,8 @@ func main() {
 		runSyncProxy(cfg, flag.Args()[1:])
 	case "backup":
 		runBackup(cfg, flag.Args()[1:])
+	case "backup-prune":
+		runBackupPrune(flag.Args()[1:])
 	case "backup-verify":
 		runBackupVerify(flag.Args()[1:])
 	case "restore":
@@ -430,6 +432,10 @@ func runBackup(cfg app.Config, args []string) {
 	outputDir := flags.String("output-dir", "/var/backups/proidentity-mail", "backup output directory")
 	output := flags.String("output", "", "exact backup archive path")
 	includeDB := flags.Bool("include-db", true, "include MariaDB logical dump")
+	pruneAfter := flags.Bool("prune-after", false, "prune old backups after successful backup")
+	keepDaily := flags.Int("keep-daily", 7, "daily backups to keep during --prune-after")
+	keepWeekly := flags.Int("keep-weekly", 4, "weekly backups to keep during --prune-after")
+	keepMonthly := flags.Int("keep-monthly", 12, "monthly backups to keep during --prune-after")
 	if err := flags.Parse(args); err != nil {
 		log.Fatalf("parse backup flags: %v", err)
 	}
@@ -463,6 +469,34 @@ func runBackup(cfg app.Config, args []string) {
 		log.Fatalf("backup verify failed: %v", err)
 	}
 	fmt.Printf("backup=%s entries=%d files=%d bytes=%d\n", outputPath, len(manifest.Entries), summary.Files, summary.Bytes)
+	if *pruneAfter {
+		result, err := backup.Prune(*outputDir, backup.RetentionPolicy{Daily: *keepDaily, Weekly: *keepWeekly, Monthly: *keepMonthly}, backup.PruneOptions{Apply: true})
+		if err != nil {
+			log.Fatalf("backup prune failed: %v", err)
+		}
+		fmt.Printf("backup_prune dir=%s scanned=%d kept=%d deleted=%d\n", *outputDir, result.Scanned, result.Kept, result.Deleted)
+	}
+}
+
+func runBackupPrune(args []string) {
+	flags := flag.NewFlagSet("backup-prune", flag.ExitOnError)
+	dir := flags.String("dir", "/var/backups/proidentity-mail", "backup directory")
+	keepDaily := flags.Int("keep-daily", 7, "daily backups to keep")
+	keepWeekly := flags.Int("keep-weekly", 4, "weekly backups to keep")
+	keepMonthly := flags.Int("keep-monthly", 12, "monthly backups to keep")
+	apply := flags.Bool("apply", false, "delete old backups; without this only reports what would be deleted")
+	if err := flags.Parse(args); err != nil {
+		log.Fatalf("parse backup-prune flags: %v", err)
+	}
+	result, err := backup.Prune(*dir, backup.RetentionPolicy{Daily: *keepDaily, Weekly: *keepWeekly, Monthly: *keepMonthly}, backup.PruneOptions{Apply: *apply})
+	if err != nil {
+		log.Fatalf("backup prune failed: %v", err)
+	}
+	if *apply {
+		fmt.Printf("backup_prune dir=%s scanned=%d kept=%d deleted=%d\n", *dir, result.Scanned, result.Kept, result.Deleted)
+		return
+	}
+	fmt.Printf("backup_prune_dry_run dir=%s scanned=%d kept=%d would_delete=%d\n", *dir, result.Scanned, result.Kept, result.WouldDelete)
 }
 
 func runBackupVerify(args []string) {

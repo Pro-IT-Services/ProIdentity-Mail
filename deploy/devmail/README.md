@@ -34,7 +34,17 @@ Copy `proidentity-mail.env.example` to `/etc/proidentity-mail/proidentity-mail.e
 ```bash
 systemctl daemon-reload
 systemctl enable --now proidentity-webadmin proidentity-groupware
+systemctl enable --now proidentity-backup.timer
 systemctl start proidentity-mailctl
+```
+
+## Backups
+
+The backup timer runs daily at 02:15 with a randomized delay. Defaults keep 7 daily, 4 weekly, and 12 monthly backup archives.
+
+```bash
+/opt/proidentity-mail/bin/mailctl backup --output-dir /var/backups/proidentity-mail --prune-after
+/opt/proidentity-mail/bin/mailctl backup-prune --dir /var/backups/proidentity-mail
 ```
 
 ## Apply Mail Daemon Config
