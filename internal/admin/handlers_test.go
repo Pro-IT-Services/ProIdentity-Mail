@@ -142,6 +142,24 @@ func TestMailAutoconfigEndpoint(t *testing.T) {
 	}
 }
 
+func TestServiceDiscoveryEndpoint(t *testing.T) {
+	handler := NewRouter(&fakeStore{})
+	req := httptest.NewRequest(http.MethodGet, "/.well-known/proidentity-mail/config.json?emailaddress=marko@example.com", nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, want := range []string{"\"imap\"", "\"smtp\"", "\"caldav\"", "\"carddav\"", "https://mail.example.com/dav/calendars/marko@example.com/"} {
+		if !bytes.Contains([]byte(body), []byte(want)) {
+			t.Fatalf("service discovery missing %q: %s", want, body)
+		}
+	}
+}
+
 func TestWellKnownGroupwareRedirects(t *testing.T) {
 	handler := NewRouter(&fakeStore{})
 	for _, tt := range []struct {

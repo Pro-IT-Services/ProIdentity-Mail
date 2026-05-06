@@ -51,6 +51,7 @@ func NewRouter(store Store, authConfig ...AuthConfig) http.Handler {
 	r.Get("/healthz", health)
 	r.Get("/.well-known/autoconfig/mail/config-v1.1.xml", h.mailAutoconfig)
 	r.Get("/mail/config-v1.1.xml", h.mailAutoconfig)
+	r.Get("/.well-known/proidentity-mail/config.json", h.serviceDiscovery)
 	r.Get("/.well-known/caldav", wellKnownDAV)
 	r.Head("/.well-known/caldav", wellKnownDAV)
 	r.Get("/.well-known/carddav", wellKnownDAV)
@@ -141,6 +142,29 @@ func (h handler) mailAutoconfig(w http.ResponseWriter, r *http.Request) {
   </emailProvider>
 </clientConfig>
 `, xmlEscape(domainName), xmlEscape(domainName), xmlEscape(host), xmlEscape(host), xmlEscape(host))
+}
+
+func (h handler) serviceDiscovery(w http.ResponseWriter, r *http.Request) {
+	email := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("emailaddress")))
+	at := strings.LastIndex(email, "@")
+	if at <= 0 || at == len(email)-1 {
+		writeError(w, http.StatusBadRequest, "emailaddress is required")
+		return
+	}
+	domainName := email[at+1:]
+	host := "mail." + domainName
+	base := "https://" + host
+	writeJSON(w, http.StatusOK, map[string]any{
+		"email": email,
+		"services": map[string]any{
+			"imap":    map[string]any{"hostname": host, "port": 993, "security": "tls", "username": email},
+			"pop3":    map[string]any{"hostname": host, "port": 995, "security": "tls", "username": email},
+			"smtp":    map[string]any{"hostname": host, "port": 587, "security": "starttls", "username": email},
+			"caldav":  map[string]any{"url": base + "/dav/calendars/" + email + "/default/"},
+			"carddav": map[string]any{"url": base + "/dav/addressbooks/" + email + "/default/"},
+			"webmail": map[string]any{"url": base + "/"},
+		},
+	})
 }
 
 func wellKnownDAV(w http.ResponseWriter, r *http.Request) {
