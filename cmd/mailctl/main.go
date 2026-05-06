@@ -62,7 +62,13 @@ func runRender(cfg app.Config) {
 		log.Fatalf("create config dir: %v", err)
 	}
 	writeRendered(filepath.Join(cfg.ConfigDir, "postfix-main.cf"), must(render.RenderPostfixMain(render.PostfixMainData{Hostname: cfg.MailHostname})))
+	writeRendered(filepath.Join(cfg.ConfigDir, "postfix-master.cf"), must(render.RenderPostfixMaster()))
 	writeRendered(filepath.Join(cfg.ConfigDir, "dovecot-sql.conf.ext"), must(render.RenderDovecotSQL(render.DovecotSQLData{Database: cfg.DBName, User: cfg.DBUser, Password: cfg.DBPassword})))
+	writeRendered(filepath.Join(cfg.ConfigDir, "dovecot-proidentity.conf"), must(render.RenderDovecotLocal()))
+	mysqlData := render.PostfixMySQLData{Database: cfg.DBName, User: cfg.DBUser, Password: cfg.DBPassword}
+	writeRendered(filepath.Join(cfg.ConfigDir, "virtual-mailbox-domains.cf"), must(render.RenderPostfixVirtualMailboxDomains(mysqlData)))
+	writeRendered(filepath.Join(cfg.ConfigDir, "virtual-mailbox-maps.cf"), must(render.RenderPostfixVirtualMailboxMaps(mysqlData)))
+	writeRendered(filepath.Join(cfg.ConfigDir, "virtual-alias-maps.cf"), must(render.RenderPostfixVirtualAliasMaps(mysqlData)))
 	writeRendered(filepath.Join(cfg.ConfigDir, "rspamd-local.d-redis.conf"), must(render.RenderRspamdLocal()))
 	fmt.Printf("rendered configs to %s\n", cfg.ConfigDir)
 }

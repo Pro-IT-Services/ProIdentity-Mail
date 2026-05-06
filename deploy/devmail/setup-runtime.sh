@@ -8,6 +8,7 @@ install -m 0755 /tmp/webadmin /opt/proidentity-mail/bin/webadmin
 install -m 0755 /tmp/mailctl /opt/proidentity-mail/bin/mailctl
 install -m 0644 /tmp/proidentity-devmail/proidentity-webadmin.service /etc/systemd/system/proidentity-webadmin.service
 install -m 0644 /tmp/proidentity-devmail/proidentity-mailctl.service /etc/systemd/system/proidentity-mailctl.service
+install -m 0755 /tmp/proidentity-devmail/apply-mail-config.sh /opt/proidentity-mail/bin/apply-mail-config
 
 if [[ ! -f /etc/proidentity-mail/proidentity-mail.env ]]; then
   db_password="$(openssl rand -hex 24)"

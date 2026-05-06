@@ -36,3 +36,9 @@ systemctl daemon-reload
 systemctl enable --now proidentity-webadmin
 systemctl start proidentity-mailctl
 ```
+
+## Apply Mail Daemon Config
+
+```bash
+/opt/proidentity-mail/bin/apply-mail-config
+```
