@@ -1,16 +1,26 @@
 package groupware
 
 import (
+	"context"
 	"encoding/xml"
 	"fmt"
 	"net/http"
 	"strings"
 )
 
-func NewRouter() http.Handler {
+type Store interface {
+	VerifyUserPassword(ctx context.Context, email, password string) (bool, error)
+}
+
+type handler struct {
+	store Store
+}
+
+func NewRouter(store Store) http.Handler {
+	h := handler{store: store}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", health)
-	mux.HandleFunc("/dav/", dav)
+	mux.HandleFunc("/dav/", h.dav)
 	return mux
 }
 
@@ -19,18 +29,44 @@ func health(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte("{\"status\":\"ok\"}\n"))
 }
 
-func dav(w http.ResponseWriter, r *http.Request) {
+func (h handler) dav(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("DAV", "1, 3, calendar-access, addressbook")
 	w.Header().Set("MS-Author-Via", "DAV")
 	switch r.Method {
 	case http.MethodOptions:
 		w.WriteHeader(http.StatusNoContent)
 	case "PROPFIND":
+		if !h.authorized(w, r) {
+			return
+		}
 		writeMultiStatus(w, r.URL.Path)
 	default:
 		w.Header().Set("Allow", "OPTIONS, PROPFIND")
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+func (h handler) authorized(w http.ResponseWriter, r *http.Request) bool {
+	if h.store == nil {
+		writeUnauthorized(w)
+		return false
+	}
+	email, password, ok := r.BasicAuth()
+	if !ok || email == "" || password == "" {
+		writeUnauthorized(w)
+		return false
+	}
+	valid, err := h.store.VerifyUserPassword(r.Context(), strings.ToLower(email), password)
+	if err != nil || !valid {
+		writeUnauthorized(w)
+		return false
+	}
+	return true
+}
+
+func writeUnauthorized(w http.ResponseWriter) {
+	w.Header().Set("WWW-Authenticate", `Basic realm="ProIdentity DAV", charset="UTF-8"`)
+	http.Error(w, "unauthorized", http.StatusUnauthorized)
 }
 
 func writeMultiStatus(w http.ResponseWriter, path string) {

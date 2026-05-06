@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"time"
 
 	"proidentity-mail/internal/app"
+	"proidentity-mail/internal/db"
 	"proidentity-mail/internal/groupware"
 )
 
@@ -14,9 +16,15 @@ func main() {
 	if err != nil {
 		log.Fatalf("load config: %v", err)
 	}
+	conn, err := db.Open(context.Background(), cfg.DBDSN)
+	if err != nil {
+		log.Fatalf("open db: %v", err)
+	}
+	defer conn.Close()
+	store := groupware.NewSQLStore(conn)
 	server := http.Server{
 		Addr:              cfg.GroupwareAddr,
-		Handler:           groupware.NewRouter(),
+		Handler:           groupware.NewRouter(store),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	log.Printf("groupware listening on %s", cfg.GroupwareAddr)
