@@ -95,6 +95,7 @@ func TestListEndpoints(t *testing.T) {
 		{path: "/api/v1/tenants", want: "Example Org"},
 		{path: "/api/v1/domains", want: "example.com"},
 		{path: "/api/v1/users", want: "marko"},
+		{path: "/api/v1/quarantine", want: "EICAR"},
 	}
 
 	for _, tt := range tests {
@@ -265,6 +266,18 @@ func TestDomainDNSEndpoint(t *testing.T) {
 	}
 }
 
+func TestQuarantineEndpointRequiresConfiguredAuth(t *testing.T) {
+	handler := NewRouter(&fakeStore{}, AuthConfig{Username: "admin", Password: "secret"})
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/quarantine", nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+}
+
 func TestNormalizeDKIMTXTExtractsTXTValue(t *testing.T) {
 	raw := "mail._domainkey IN TXT ( \"v=DKIM1; k=rsa; \"\n\t\"p=abc123\"\n) ;"
 	got := normalizeDKIMTXT(raw)
@@ -311,6 +324,18 @@ func (s *fakeStore) CreateUser(ctx context.Context, user domain.User) (domain.Us
 
 func (s *fakeStore) ListUsers(ctx context.Context) ([]domain.User, error) {
 	return []domain.User{{ID: 33, TenantID: 11, PrimaryDomainID: 22, LocalPart: "marko", DisplayName: "Marko", Status: "active"}}, nil
+}
+
+func (s *fakeStore) ListQuarantineEvents(ctx context.Context) ([]domain.QuarantineEvent, error) {
+	return []domain.QuarantineEvent{{
+		ID:          44,
+		TenantID:    11,
+		Recipient:   "marko@example.com",
+		Verdict:     "malware",
+		Action:      "quarantine",
+		Scanner:     "ClamAV",
+		SymbolsJSON: `{"signature":"EICAR-Test-Signature"}`,
+	}}, nil
 }
 
 func (s *fakeStore) GetDomainDNS(ctx context.Context, domainID uint64) (domain.DomainDNS, error) {

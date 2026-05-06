@@ -137,6 +137,46 @@ func (s SQLStore) ListUsers(ctx context.Context) ([]domain.User, error) {
 	return users, rows.Err()
 }
 
+func (s SQLStore) ListQuarantineEvents(ctx context.Context) ([]domain.QuarantineEvent, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, tenant_id, user_id, domain_id, message_id, sender, recipient, verdict, action, scanner, CAST(symbols_json AS CHAR), created_at
+		FROM quarantine_events
+		ORDER BY created_at DESC, id DESC
+		LIMIT 500`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	events := make([]domain.QuarantineEvent, 0)
+	for rows.Next() {
+		var event domain.QuarantineEvent
+		var userID sql.NullInt64
+		var domainID sql.NullInt64
+		var messageID sql.NullString
+		var sender sql.NullString
+		if err := rows.Scan(&event.ID, &event.TenantID, &userID, &domainID, &messageID, &sender, &event.Recipient, &event.Verdict, &event.Action, &event.Scanner, &event.SymbolsJSON, &event.CreatedAt); err != nil {
+			return nil, err
+		}
+		if userID.Valid {
+			id := uint64(userID.Int64)
+			event.UserID = &id
+		}
+		if domainID.Valid {
+			id := uint64(domainID.Int64)
+			event.DomainID = &id
+		}
+		if messageID.Valid {
+			event.MessageID = messageID.String
+		}
+		if sender.Valid {
+			event.Sender = sender.String
+		}
+		events = append(events, event)
+	}
+	return events, rows.Err()
+}
+
 func (s SQLStore) GetDomainDNS(ctx context.Context, domainID uint64) (domain.DomainDNS, error) {
 	var domainName string
 	var selector sql.NullString

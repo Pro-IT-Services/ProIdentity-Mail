@@ -359,6 +359,7 @@ const adminIndexHTML = `<!doctype html>
       <button class="nav-item" data-view="domains"><span class="material-symbols-outlined">domain</span><span>Domains</span></button>
       <button class="nav-item" data-view="users"><span class="material-symbols-outlined">group</span><span>Users</span></button>
       <button class="nav-item" data-view="dns"><span class="material-symbols-outlined">dns</span><span>DNS Records</span></button>
+      <button class="nav-item" data-view="quarantine"><span class="material-symbols-outlined">gpp_maybe</span><span>Quarantine</span></button>
       <button class="nav-item" data-view="audit"><span class="material-symbols-outlined">receipt_long</span><span>Audit Logs</span></button>
       <button class="nav-item" data-view="settings"><span class="material-symbols-outlined">settings</span><span>Settings</span></button>
     </nav>
@@ -459,6 +460,11 @@ const adminIndexHTML = `<!doctype html>
         <div class="dns-grid" id="dns"><div class="muted">Select DNS from a domain row to view MX, SPF, DKIM, DMARC, MTA-STS, and TLS reporting records.</div></div>
       </section>
 
+      <section class="card panel hidden" id="quarantine-panel">
+        <div class="panel-head"><h3>Quarantine Events</h3><div class="panel-actions"><button class="secondary-button" id="refresh-quarantine"><span class="material-symbols-outlined">refresh</span>Refresh</button></div></div>
+        <div class="table-wrap"><table><thead><tr><th>Verdict</th><th>Recipient</th><th>Sender</th><th>Scanner</th><th>Action</th><th>Symbols</th><th>Date</th></tr></thead><tbody id="quarantine"></tbody></table></div>
+      </section>
+
       <section class="card panel hidden" id="placeholder-panel">
         <div class="panel-head"><h3 id="placeholder-title">Coming Next</h3></div>
         <div class="dns-grid"><div class="muted">This section is reserved for the next admin module. The visual shell is ready; backend functions will be attached as we implement each service capability.</div></div>
@@ -472,7 +478,7 @@ const adminIndexHTML = `<!doctype html>
   </div>
 
   <script>
-    const state = { tenants: [], domains: [], users: [], view: "tenants", dnsDomainId: null };
+    const state = { tenants: [], domains: [], users: [], quarantine: [], view: "tenants", dnsDomainId: null };
     const statusEl = document.querySelector("#status");
     const searchEl = document.querySelector("#search");
     const showStatus = (text, error) => { statusEl.textContent = text || ""; statusEl.className = error ? "toast error" : "toast"; };
@@ -506,19 +512,23 @@ const adminIndexHTML = `<!doctype html>
       document.querySelector("#users").innerHTML = filtered(state.users, ["local_part","display_name","status","id"]).map(item =>
         "<tr><td><div class=\"identity\"><span class=\"initials\">" + esc(initials(item.display_name || item.local_part)) + "</span><div><strong>" + esc(item.display_name || item.local_part) + "</strong><div class=\"muted\">" + esc(item.local_part) + "</div></div></div></td><td>" + esc(item.tenant_id) + "</td><td>" + esc(item.primary_domain_id) + "</td><td>" + badge(item.status) + "</td><td>" + esc(quotaText(item.quota_bytes)) + "</td></tr>"
       ).join("");
+      document.querySelector("#quarantine").innerHTML = filtered(state.quarantine, ["recipient","sender","verdict","action","scanner","symbols_json"]).map(item =>
+        "<tr><td>" + badge(item.verdict) + "</td><td><strong>" + esc(item.recipient) + "</strong><div class=\"muted\">Tenant " + esc(item.tenant_id) + "</div></td><td class=\"muted\">" + esc(item.sender || "-") + "</td><td>" + esc(item.scanner) + "</td><td>" + esc(item.action) + "</td><td><code>" + esc(item.symbols_json || "{}") + "</code></td><td>" + esc(dateText(item.created_at)) + "</td></tr>"
+      ).join("");
     }
     async function refresh() {
-      const [tenants, domains, users] = await Promise.all([api("/api/v1/tenants"), api("/api/v1/domains"), api("/api/v1/users")]);
+      const [tenants, domains, users, quarantine] = await Promise.all([api("/api/v1/tenants"), api("/api/v1/domains"), api("/api/v1/users"), api("/api/v1/quarantine")]);
       state.tenants = tenants || [];
       state.domains = domains || [];
       state.users = users || [];
+      state.quarantine = quarantine || [];
       render();
       showStatus("Loaded live platform data");
     }
     function setView(view) {
       state.view = view;
       document.querySelectorAll(".nav-item[data-view]").forEach(item => item.classList.toggle("active", item.dataset.view === view));
-      ["tenants","domains","users","dns"].forEach(id => document.querySelector("#" + id + "-panel").classList.toggle("hidden", view !== id));
+      ["tenants","domains","users","dns","quarantine"].forEach(id => document.querySelector("#" + id + "-panel").classList.toggle("hidden", view !== id));
       document.querySelector("#placeholder-panel").classList.toggle("hidden", !["audit","settings"].includes(view));
       document.querySelector("#forms").classList.toggle("hidden", !["tenants","domains","users"].includes(view));
       const copy = {
@@ -526,6 +536,7 @@ const adminIndexHTML = `<!doctype html>
         domains: ["Domains", "Manage Domains", "Domain onboarding, verification, and deliverability records.", "Search domains by name or ID..."],
         users: ["Users", "Manage Users", "Mailbox provisioning, status review, and quota visibility.", "Search users by name or ID..."],
         dns: ["DNS Records", "DNS Records Configuration", "MX, SPF, DKIM, DMARC, MTA-STS, and TLS reporting guidance.", "Search domains..."],
+        quarantine: ["Quarantine", "Quarantine Events", "Spam, malware, phishing, and policy holds before delivery.", "Search quarantine events..."],
         audit: ["Audit Logs", "Audit Logs", "Security event and administrative activity timeline.", "Search audit events..."],
         settings: ["Settings", "Settings", "Platform security and service configuration.", "Search settings..."]
       }[view];
@@ -567,6 +578,7 @@ const adminIndexHTML = `<!doctype html>
     document.querySelector("#user-form").addEventListener("submit", event => submitForm(event, "/api/v1/users", ["tenant_id","primary_domain_id"]));
     document.querySelectorAll(".nav-item[data-view]").forEach(item => item.addEventListener("click", () => setView(item.dataset.view)));
     document.querySelector("#primary-action").addEventListener("click", () => document.querySelector("#forms").scrollIntoView({behavior: "smooth"}));
+    document.querySelector("#refresh-quarantine").addEventListener("click", () => refresh().catch(error => showStatus(error.message, true)));
     document.addEventListener("click", event => { const id = event.target.closest("[data-dns]")?.dataset.dns; if (id) loadDNS(id); });
     searchEl.addEventListener("input", render);
     refresh().catch(error => showStatus(error.message, true));

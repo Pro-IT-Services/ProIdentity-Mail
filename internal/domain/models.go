@@ -55,3 +55,18 @@ type DomainDNS struct {
 	Domain   string      `json:"domain"`
 	Records  []DNSRecord `json:"records"`
 }
+
+type QuarantineEvent struct {
+	ID          uint64    `json:"id"`
+	TenantID    uint64    `json:"tenant_id"`
+	UserID      *uint64   `json:"user_id,omitempty"`
+	DomainID    *uint64   `json:"domain_id,omitempty"`
+	MessageID   string    `json:"message_id,omitempty"`
+	Sender      string    `json:"sender,omitempty"`
+	Recipient   string    `json:"recipient"`
+	Verdict     string    `json:"verdict"`
+	Action      string    `json:"action"`
+	Scanner     string    `json:"scanner"`
+	SymbolsJSON string    `json:"symbols_json"`
+	CreatedAt   time.Time `json:"created_at"`
+}
