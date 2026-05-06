@@ -305,6 +305,33 @@ func (s SQLStore) ListAuditEvents(ctx context.Context) ([]domain.AuditEvent, err
 	return events, rows.Err()
 }
 
+func (s SQLStore) RecordAuditEvent(ctx context.Context, event domain.AuditEvent) error {
+	var tenantID any
+	if event.TenantID != nil {
+		tenantID = *event.TenantID
+	}
+	var actorID any
+	if event.ActorID != nil {
+		actorID = *event.ActorID
+	}
+	metadata := event.MetadataJSON
+	if metadata == "" {
+		metadata = `{}`
+	}
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO audit_events(tenant_id, actor_type, actor_id, action, target_type, target_id, metadata_json)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		tenantID,
+		event.ActorType,
+		actorID,
+		event.Action,
+		event.TargetType,
+		event.TargetID,
+		metadata,
+	)
+	return err
+}
+
 func (s SQLStore) ListTenantPolicies(ctx context.Context) ([]domain.TenantPolicy, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT tenant_id, spam_action, malware_action, require_tls_for_auth, created_at, updated_at

@@ -8,6 +8,7 @@ import (
 
 	"proidentity-mail/internal/app"
 	"proidentity-mail/internal/db"
+	"proidentity-mail/internal/session"
 	"proidentity-mail/internal/webmail"
 )
 
@@ -29,7 +30,7 @@ func main() {
 	}
 	server := http.Server{
 		Addr:              cfg.WebmailAddr,
-		Handler:           webmail.NewRouter(store),
+		Handler:           webmail.NewRouter(store, session.NewManager(session.Options{CookieName: "proidentity_webmail_session", Secure: cfg.SecureCookies})),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	log.Printf("webmail listening on %s", cfg.WebmailAddr)

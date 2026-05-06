@@ -167,6 +167,21 @@ func (s SQLAuthStore) CreateCalendarEvent(ctx context.Context, email string, eve
 	return event, nil
 }
 
+func (s SQLAuthStore) ChangePassword(ctx context.Context, email, newPassword string) error {
+	hash, err := security.HashPassword(newPassword)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `
+		UPDATE users u
+		JOIN domains d ON d.id = u.primary_domain_id
+		SET u.password_hash = ?
+		WHERE CONCAT(u.local_part, '@', d.name) = ?
+		  AND u.status = 'active'
+		  AND d.status IN ('pending', 'active')`, hash, email)
+	return err
+}
+
 func (s SQLAuthStore) ensureAddressBook(ctx context.Context, email string) (uint64, error) {
 	tenantID, userID, err := s.userIDs(ctx, email)
 	if err != nil {
@@ -302,6 +317,15 @@ func (s CompositeStore) CreateCalendarEvent(ctx context.Context, email string, e
 		return store.CreateCalendarEvent(ctx, email, event)
 	}
 	return CalendarEvent{}, sql.ErrNoRows
+}
+
+func (s CompositeStore) ChangePassword(ctx context.Context, email, newPassword string) error {
+	if store, ok := s.Auth.(interface {
+		ChangePassword(context.Context, string, string) error
+	}); ok {
+		return store.ChangePassword(ctx, email, newPassword)
+	}
+	return sql.ErrNoRows
 }
 
 func objectETag(body string) string {

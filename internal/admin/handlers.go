@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -14,6 +15,7 @@ import (
 
 	"proidentity-mail/internal/domain"
 	"proidentity-mail/internal/security"
+	"proidentity-mail/internal/session"
 )
 
 type Store interface {
@@ -26,6 +28,7 @@ type Store interface {
 	ListQuarantineEvents(ctx context.Context) ([]domain.QuarantineEvent, error)
 	ResolveQuarantineEvent(ctx context.Context, eventID uint64, status, note string) (domain.QuarantineEvent, error)
 	ListAuditEvents(ctx context.Context) ([]domain.AuditEvent, error)
+	RecordAuditEvent(ctx context.Context, event domain.AuditEvent) error
 	ListTenantPolicies(ctx context.Context) ([]domain.TenantPolicy, error)
 	UpdateTenantPolicy(ctx context.Context, policy domain.TenantPolicy) (domain.TenantPolicy, error)
 	GetDomainDNS(ctx context.Context, domainID uint64) (domain.DomainDNS, error)
@@ -39,6 +42,8 @@ type handler struct {
 type AuthConfig struct {
 	Username string
 	Password string
+	Sessions *session.Manager
+	Limiter  *session.LoginLimiter
 }
 
 func NewRouter(store Store, authConfig ...AuthConfig) http.Handler {
@@ -56,9 +61,11 @@ func NewRouter(store Store, authConfig ...AuthConfig) http.Handler {
 	r.Head("/.well-known/caldav", wellKnownDAV)
 	r.Get("/.well-known/carddav", wellKnownDAV)
 	r.Head("/.well-known/carddav", wellKnownDAV)
+	r.Get("/", h.index)
+	r.Post("/api/v1/session", h.login)
+	r.Delete("/api/v1/session", h.logout)
 	r.Group(func(protected chi.Router) {
 		protected.Use(h.requireAdmin)
-		protected.Get("/", h.index)
 		protected.Get("/api/v1/tenants", h.listTenants)
 		protected.Post("/api/v1/tenants", h.createTenant)
 		protected.Get("/api/v1/domains", h.listDomains)
@@ -92,6 +99,21 @@ func (h handler) requireAdmin(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
+		if h.auth.Sessions != nil {
+			if !safeMethod(r.Method) {
+				if _, ok := h.auth.Sessions.ValidateUnsafe(r); ok {
+					next.ServeHTTP(w, r)
+					return
+				}
+				if _, _, ok := r.BasicAuth(); !ok {
+					http.Error(w, "csrf required", http.StatusForbidden)
+					return
+				}
+			} else if _, ok := h.auth.Sessions.Validate(r); ok {
+				next.ServeHTTP(w, r)
+				return
+			}
+		}
 		username, password, ok := r.BasicAuth()
 		if !ok || subtle.ConstantTimeCompare([]byte(username), []byte(h.auth.Username)) != 1 || subtle.ConstantTimeCompare([]byte(password), []byte(h.auth.Password)) != 1 {
 			w.Header().Set("WWW-Authenticate", `Basic realm="ProIdentity Admin", charset="UTF-8"`)
@@ -100,6 +122,75 @@ func (h handler) requireAdmin(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func (h handler) login(w http.ResponseWriter, r *http.Request) {
+	if h.auth.Sessions == nil {
+		writeError(w, http.StatusServiceUnavailable, "sessions unavailable")
+		return
+	}
+	var req struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	key := loginKey(req.Username, r)
+	if h.auth.Limiter != nil && h.auth.Limiter.Locked(key) {
+		writeError(w, http.StatusTooManyRequests, "login temporarily locked")
+		return
+	}
+	if subtle.ConstantTimeCompare([]byte(req.Username), []byte(h.auth.Username)) != 1 || subtle.ConstantTimeCompare([]byte(req.Password), []byte(h.auth.Password)) != 1 {
+		if h.auth.Limiter != nil {
+			h.auth.Limiter.Fail(key)
+		}
+		h.recordAudit(r.Context(), domain.AuditEvent{ActorType: "admin", Action: "admin.login_failed", TargetType: "admin", TargetID: req.Username, MetadataJSON: `{}`})
+		writeError(w, http.StatusUnauthorized, "invalid credentials")
+		return
+	}
+	if h.auth.Limiter != nil {
+		h.auth.Limiter.Success(key)
+	}
+	created, err := h.auth.Sessions.Create(r, req.Username, "admin")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "create session failed")
+		return
+	}
+	http.SetCookie(w, created.Cookie)
+	h.recordAudit(r.Context(), domain.AuditEvent{ActorType: "admin", Action: "admin.login", TargetType: "admin", TargetID: req.Username, MetadataJSON: `{}`})
+	writeJSON(w, http.StatusOK, map[string]string{"csrf_token": created.CSRFToken})
+}
+
+func loginKey(subject string, r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	return strings.ToLower(strings.TrimSpace(subject)) + "|" + host
+}
+
+func (h handler) logout(w http.ResponseWriter, r *http.Request) {
+	if h.auth.Sessions != nil {
+		h.auth.Sessions.Clear(w, r)
+	}
+	h.recordAudit(r.Context(), domain.AuditEvent{ActorType: "admin", Action: "admin.logout", TargetType: "admin_session", TargetID: "current", MetadataJSON: `{}`})
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h handler) recordAudit(ctx context.Context, event domain.AuditEvent) {
+	if h.store == nil {
+		return
+	}
+	if event.MetadataJSON == "" {
+		event.MetadataJSON = `{}`
+	}
+	_ = h.store.RecordAuditEvent(ctx, event)
+}
+
+func safeMethod(method string) bool {
+	return method == http.MethodGet || method == http.MethodHead || method == http.MethodOptions
 }
 
 func (h handler) mailAutoconfig(w http.ResponseWriter, r *http.Request) {
@@ -438,6 +529,7 @@ func (h handler) updateTenantPolicy(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "update tenant policy failed")
 		return
 	}
+	h.recordAudit(r.Context(), domain.AuditEvent{TenantID: &tenantID, ActorType: "admin", Action: "tenant_policy.update", TargetType: "tenant_policy", TargetID: strconv.FormatUint(tenantID, 10), MetadataJSON: fmt.Sprintf(`{"spam_action":%q,"malware_action":%q,"require_tls_for_auth":%t}`, policy.SpamAction, policy.MalwareAction, policy.RequireTLSForAuth)})
 	writeJSON(w, http.StatusOK, policy)
 }
 

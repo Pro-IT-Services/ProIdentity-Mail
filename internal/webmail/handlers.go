@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
+
+	"proidentity-mail/internal/session"
 )
 
 type Store interface {
@@ -22,6 +25,7 @@ type Store interface {
 	CreateContact(ctx context.Context, email string, contact Contact) (Contact, error)
 	ListCalendarEvents(ctx context.Context, email string) ([]CalendarEvent, error)
 	CreateCalendarEvent(ctx context.Context, email string, event CalendarEvent) (CalendarEvent, error)
+	ChangePassword(ctx context.Context, email, newPassword string) error
 }
 
 type OutboundMessage struct {
@@ -45,18 +49,26 @@ type CalendarEvent struct {
 }
 
 type handler struct {
-	store Store
+	store    Store
+	sessions *session.Manager
+	limiter  *session.LoginLimiter
 }
 
-func NewRouter(store Store) http.Handler {
-	h := handler{store: store}
+func NewRouter(store Store, managers ...*session.Manager) http.Handler {
+	var manager *session.Manager
+	if len(managers) > 0 {
+		manager = managers[0]
+	}
+	h := handler{store: store, sessions: manager, limiter: session.NewLoginLimiter(session.Options{})}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", health)
+	mux.HandleFunc("/api/v1/session", h.session)
 	mux.HandleFunc("/api/v1/messages", h.messages)
 	mux.HandleFunc("/api/v1/messages/", h.message)
 	mux.HandleFunc("/api/v1/send", h.send)
 	mux.HandleFunc("/api/v1/contacts", h.contacts)
 	mux.HandleFunc("/api/v1/calendar", h.calendar)
+	mux.HandleFunc("/api/v1/password", h.changePassword)
 	mux.HandleFunc("/", index)
 	return mux
 }
@@ -285,10 +297,58 @@ func (h handler) calendar(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (h handler) changePassword(w http.ResponseWriter, r *http.Request) {
+	email, ok := h.authorized(w, r)
+	if !ok {
+		return
+	}
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		CurrentPassword string `json:"current_password"`
+		NewPassword     string `json:"new_password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	valid, err := h.store.VerifyUserPassword(r.Context(), email, req.CurrentPassword)
+	if err != nil || !valid {
+		writeError(w, http.StatusUnauthorized, "current password is invalid")
+		return
+	}
+	if len(req.NewPassword) < 12 {
+		writeError(w, http.StatusBadRequest, "new password must be at least 12 characters")
+		return
+	}
+	if err := h.store.ChangePassword(r.Context(), email, req.NewPassword); err != nil {
+		writeError(w, http.StatusInternalServerError, "change password failed")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (h handler) authorized(w http.ResponseWriter, r *http.Request) (string, bool) {
 	if h.store == nil {
 		writeUnauthorized(w)
 		return "", false
+	}
+	if h.sessions != nil {
+		if safeMethod(r.Method) {
+			if session, ok := h.sessions.Validate(r); ok && session.Kind == "webmail" {
+				return session.Subject, true
+			}
+		} else if _, _, hasBasic := r.BasicAuth(); !hasBasic {
+			session, ok := h.sessions.ValidateUnsafe(r)
+			if !ok || session.Kind != "webmail" {
+				http.Error(w, "csrf required", http.StatusForbidden)
+				return "", false
+			}
+			return session.Subject, true
+		}
 	}
 	email, password, ok := r.BasicAuth()
 	if !ok || email == "" || password == "" {
@@ -302,6 +362,66 @@ func (h handler) authorized(w http.ResponseWriter, r *http.Request) (string, boo
 		return "", false
 	}
 	return email, true
+}
+
+func (h handler) session(w http.ResponseWriter, r *http.Request) {
+	if h.sessions == nil {
+		writeError(w, http.StatusServiceUnavailable, "sessions unavailable")
+		return
+	}
+	switch r.Method {
+	case http.MethodPost:
+		var req struct {
+			Email    string `json:"email"`
+			Password string `json:"password"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid json")
+			return
+		}
+		email := strings.ToLower(strings.TrimSpace(req.Email))
+		key := loginKey(email, r)
+		if h.limiter != nil && h.limiter.Locked(key) {
+			writeError(w, http.StatusTooManyRequests, "login temporarily locked")
+			return
+		}
+		valid, err := h.store.VerifyUserPassword(r.Context(), email, req.Password)
+		if err != nil || !valid {
+			if h.limiter != nil {
+				h.limiter.Fail(key)
+			}
+			writeError(w, http.StatusUnauthorized, "invalid credentials")
+			return
+		}
+		if h.limiter != nil {
+			h.limiter.Success(key)
+		}
+		created, err := h.sessions.Create(r, email, "webmail")
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "create session failed")
+			return
+		}
+		http.SetCookie(w, created.Cookie)
+		writeJSON(w, http.StatusOK, map[string]string{"csrf_token": created.CSRFToken, "email": email})
+	case http.MethodDelete:
+		h.sessions.Clear(w, r)
+		w.WriteHeader(http.StatusNoContent)
+	default:
+		w.Header().Set("Allow", "POST, DELETE")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func safeMethod(method string) bool {
+	return method == http.MethodGet || method == http.MethodHead || method == http.MethodOptions
+}
+
+func loginKey(subject string, r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	return strings.ToLower(strings.TrimSpace(subject)) + "|" + host
 }
 
 func writeUnauthorized(w http.ResponseWriter) {

@@ -454,13 +454,13 @@ const webmailIndexHTML = `<!doctype html>
   </form>
 
   <script>
-    const state = { token: "", email: "", messages: [], selected: null, folder: "inbox" };
+    const state = { csrf: "", email: "", messages: [], selected: null, folder: "inbox" };
     const esc = value => String(value ?? "").replace(/[&<>"']/g, char => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[char]));
     const initials = email => String(email || "--").split("@")[0].split(/[._-]+/).filter(Boolean).slice(0, 2).map(part => part[0]).join("").toUpperCase() || "--";
     const messageTime = item => item.date ? new Date(item.date).toLocaleString([], {month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"}) : "";
     const shortFrom = value => String(value || "Unknown").replace(/<.*>/, "").replace(/"/g, "").trim() || "Unknown";
     async function loadMessages() {
-      const response = await fetch("/api/v1/messages?limit=100&folder=" + encodeURIComponent(state.folder), { headers: { Authorization: "Basic " + state.token } });
+      const response = await fetch("/api/v1/messages?limit=100&folder=" + encodeURIComponent(state.folder), { credentials: "same-origin" });
       if (!response.ok) throw new Error("Mailbox authentication failed");
       state.messages = await response.json();
       state.selected = state.messages[0] || null;
@@ -468,12 +468,12 @@ const webmailIndexHTML = `<!doctype html>
     }
     async function moveSelected(folder) {
       if (!state.selected) return;
-      const response = await fetch("/api/v1/messages/" + encodeURIComponent(state.selected.id) + "/move", {method: "POST", headers: {"Content-Type": "application/json", Authorization: "Basic " + state.token}, body: JSON.stringify({folder})});
+      const response = await fetch("/api/v1/messages/" + encodeURIComponent(state.selected.id) + "/move", {method: "POST", credentials: "same-origin", headers: {"Content-Type": "application/json", "X-CSRF-Token": state.csrf}, body: JSON.stringify({folder})});
       if (!response.ok) throw new Error("Move failed");
       await loadMessages();
     }
     async function loadContactsView() {
-      const response = await fetch("/api/v1/contacts", { headers: { Authorization: "Basic " + state.token } });
+      const response = await fetch("/api/v1/contacts", { credentials: "same-origin" });
       if (!response.ok) throw new Error("Contacts load failed");
       const contacts = await response.json();
       document.querySelector("#reader").innerHTML = "<h2>Contacts</h2><button class=\"primary-button\" id=\"add-contact\" type=\"button\">Add Contact</button><div class=\"mini-grid\">" + contacts.map(item => "<div class=\"mini-row\"><div><strong>" + esc(item.name) + "</strong><div class=\"muted\">" + esc(item.email) + "</div></div><span class=\"material-symbols-outlined\">contacts</span></div>").join("") + "</div>";
@@ -484,12 +484,12 @@ const webmailIndexHTML = `<!doctype html>
       if (!name) return;
       const email = prompt("Contact email");
       if (!email) return;
-      const response = await fetch("/api/v1/contacts", {method: "POST", headers: {"Content-Type": "application/json", Authorization: "Basic " + state.token}, body: JSON.stringify({name, email})});
+      const response = await fetch("/api/v1/contacts", {method: "POST", credentials: "same-origin", headers: {"Content-Type": "application/json", "X-CSRF-Token": state.csrf}, body: JSON.stringify({name, email})});
       if (!response.ok) throw new Error("Create contact failed");
       await loadContactsView();
     }
     async function loadCalendarView() {
-      const response = await fetch("/api/v1/calendar", { headers: { Authorization: "Basic " + state.token } });
+      const response = await fetch("/api/v1/calendar", { credentials: "same-origin" });
       if (!response.ok) throw new Error("Calendar load failed");
       const events = await response.json();
       document.querySelector("#reader").innerHTML = "<h2>Calendar</h2><button class=\"primary-button\" id=\"add-event\" type=\"button\">Add Event</button><div class=\"mini-grid\">" + events.map(item => "<div class=\"mini-row\"><div><strong>" + esc(item.title) + "</strong><div class=\"muted\">" + esc(new Date(item.starts_at).toLocaleString()) + "</div></div><span class=\"material-symbols-outlined\">event</span></div>").join("") + "</div>";
@@ -502,13 +502,13 @@ const webmailIndexHTML = `<!doctype html>
       if (!start) return;
       const end = prompt("End time", new Date(Date.now() + 7200000).toISOString());
       if (!end) return;
-      const response = await fetch("/api/v1/calendar", {method: "POST", headers: {"Content-Type": "application/json", Authorization: "Basic " + state.token}, body: JSON.stringify({title, starts_at: new Date(start).toISOString(), ends_at: new Date(end).toISOString()})});
+      const response = await fetch("/api/v1/calendar", {method: "POST", credentials: "same-origin", headers: {"Content-Type": "application/json", "X-CSRF-Token": state.csrf}, body: JSON.stringify({title, starts_at: new Date(start).toISOString(), ends_at: new Date(end).toISOString()})});
       if (!response.ok) throw new Error("Create event failed");
       await loadCalendarView();
     }
     async function reportSelected(verdict) {
       if (!state.selected) return;
-      const response = await fetch("/api/v1/messages/" + encodeURIComponent(state.selected.id) + "/report", {method: "POST", headers: {"Content-Type": "application/json", Authorization: "Basic " + state.token}, body: JSON.stringify({verdict})});
+      const response = await fetch("/api/v1/messages/" + encodeURIComponent(state.selected.id) + "/report", {method: "POST", credentials: "same-origin", headers: {"Content-Type": "application/json", "X-CSRF-Token": state.csrf}, body: JSON.stringify({verdict})});
       if (!response.ok) throw new Error("Message report failed");
       await loadMessages();
     }
@@ -536,7 +536,7 @@ const webmailIndexHTML = `<!doctype html>
         document.querySelector("#reader").innerHTML = "<h2>No messages yet</h2><div class=\"body\">New mail delivered by Postfix and Dovecot will appear here after refresh.</div>";
         return;
       }
-      fetch("/api/v1/messages/" + encodeURIComponent(item.id), { headers: { Authorization: "Basic " + state.token } })
+          fetch("/api/v1/messages/" + encodeURIComponent(item.id), { credentials: "same-origin" })
         .then(response => response.ok ? response.json() : item)
         .then(detail => {
           document.querySelector("#reader").innerHTML =
@@ -549,9 +549,12 @@ const webmailIndexHTML = `<!doctype html>
       event.preventDefault();
       const data = new FormData(event.currentTarget);
       state.email = String(data.get("email") || "");
-      state.token = btoa(state.email + ":" + String(data.get("password") || ""));
       document.querySelector("#error").textContent = "";
       try {
+        const response = await fetch("/api/v1/session", {method: "POST", credentials: "same-origin", headers: {"Content-Type": "application/json"}, body: JSON.stringify({email: state.email, password: String(data.get("password") || "")})});
+        const body = await response.json();
+        if (!response.ok) throw new Error(body.error || "Mailbox authentication failed");
+        state.csrf = body.csrf_token;
         await loadMessages();
         document.querySelector("#login-panel").classList.add("hidden");
       } catch (error) {
@@ -565,7 +568,7 @@ const webmailIndexHTML = `<!doctype html>
       const data = new FormData(event.currentTarget);
       document.querySelector("#compose-error").textContent = "";
       const payload = {to: String(data.get("to") || "").split(",").map(item => item.trim()).filter(Boolean), subject: String(data.get("subject") || ""), body: String(data.get("body") || "")};
-      const response = await fetch("/api/v1/send", {method: "POST", headers: {"Content-Type": "application/json", Authorization: "Basic " + state.token}, body: JSON.stringify(payload)});
+      const response = await fetch("/api/v1/send", {method: "POST", credentials: "same-origin", headers: {"Content-Type": "application/json", "X-CSRF-Token": state.csrf}, body: JSON.stringify(payload)});
       if (!response.ok) {
         document.querySelector("#compose-error").textContent = "Send failed";
         return;

@@ -2,12 +2,15 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"proidentity-mail/internal/app"
 	"proidentity-mail/internal/db"
@@ -18,7 +21,7 @@ import (
 func main() {
 	flag.Parse()
 	if flag.NArg() == 0 {
-		fmt.Fprintln(os.Stderr, "usage: mailctl migrate|render|health|seed-dev")
+		fmt.Fprintln(os.Stderr, "usage: mailctl migrate|render|health|seed-dev|rotate-admin-password")
 		os.Exit(2)
 	}
 
@@ -36,10 +39,54 @@ func main() {
 		runHealth()
 	case "seed-dev":
 		runSeedDev(cfg)
+	case "rotate-admin-password":
+		runRotateAdminPassword(cfg)
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command %q\n", flag.Arg(0))
 		os.Exit(2)
 	}
+}
+
+func runRotateAdminPassword(cfg app.Config) {
+	password := os.Getenv("PROIDENTITY_NEW_ADMIN_PASSWORD")
+	if password == "" {
+		password = randomHex(18)
+	}
+	envPath := os.Getenv("PROIDENTITY_ENV_FILE")
+	if envPath == "" {
+		envPath = "/etc/proidentity-mail/proidentity-mail.env"
+	}
+	data, err := os.ReadFile(envPath)
+	if err != nil {
+		log.Fatalf("read env file: %v", err)
+	}
+	lines := strings.Split(string(data), "\n")
+	found := false
+	for i, line := range lines {
+		if strings.HasPrefix(line, "PROIDENTITY_ADMIN_PASSWORD=") {
+			lines[i] = "PROIDENTITY_ADMIN_PASSWORD=" + password
+			found = true
+		}
+	}
+	if !found {
+		lines = append(lines, "PROIDENTITY_ADMIN_PASSWORD="+password)
+	}
+	if err := os.WriteFile(envPath, []byte(strings.Join(lines, "\n")), 0640); err != nil {
+		log.Fatalf("write env file: %v", err)
+	}
+	fmt.Println("admin password rotated")
+	if os.Getenv("PROIDENTITY_PRINT_NEW_ADMIN_PASSWORD") == "1" {
+		fmt.Println(password)
+	}
+	_ = cfg
+}
+
+func randomHex(bytesCount int) string {
+	buf := make([]byte, bytesCount)
+	if _, err := rand.Read(buf); err != nil {
+		log.Fatalf("generate password: %v", err)
+	}
+	return hex.EncodeToString(buf)
 }
 
 func runMigrate(cfg app.Config) {

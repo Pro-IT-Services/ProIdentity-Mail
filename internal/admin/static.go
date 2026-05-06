@@ -346,6 +346,23 @@ const adminIndexHTML = `<!doctype html>
     .compliance { display: flex; align-items: center; gap: 12px; }
     .compliance .material-symbols-outlined { color: var(--success); }
     .hidden { display: none !important; }
+    .login {
+      position: fixed;
+      inset: 0;
+      z-index: 50;
+      display: grid;
+      place-items: center;
+      background: rgba(247,249,251,.94);
+      backdrop-filter: blur(10px);
+      padding: 24px;
+    }
+    .login-card {
+      width: min(420px, 100%);
+      padding: 22px;
+      display: grid;
+      gap: 14px;
+    }
+    .login-card h2 { margin: 0; font-size: 22px; }
     @media (max-width: 1100px) {
       .layout { padding-left: 0; }
       aside { position: static; width: auto; height: auto; }
@@ -497,13 +514,25 @@ const adminIndexHTML = `<!doctype html>
     </main>
   </div>
 
+  <div class="login" id="login-panel">
+    <form class="card login-card" id="login-form">
+      <h2>Admin login</h2>
+      <label>Username<input name="username" autocomplete="username" required></label>
+      <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
+      <button class="primary-button" type="submit"><span class="material-symbols-outlined">login</span>Login</button>
+      <p class="toast error" id="login-error"></p>
+    </form>
+  </div>
+
   <script>
-    const state = { tenants: [], domains: [], users: [], quarantine: [], audit: [], policies: [], view: "tenants", dnsDomainId: null };
+    const state = { tenants: [], domains: [], users: [], quarantine: [], audit: [], policies: [], view: "tenants", dnsDomainId: null, csrf: "" };
     const statusEl = document.querySelector("#status");
     const searchEl = document.querySelector("#search");
     const showStatus = (text, error) => { statusEl.textContent = text || ""; statusEl.className = error ? "toast error" : "toast"; };
     const api = async (path, options = {}) => {
-      const response = await fetch(path, { headers: {"Content-Type": "application/json"}, ...options });
+      const headers = {"Content-Type": "application/json", ...(state.csrf ? {"X-CSRF-Token": state.csrf} : {}), ...(options.headers || {})};
+      const response = await fetch(path, { credentials: "same-origin", ...options, headers });
+      if (response.status === 401 || response.status === 403) document.querySelector("#login-panel").classList.remove("hidden");
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || response.statusText);
       return data;
@@ -631,6 +660,19 @@ const adminIndexHTML = `<!doctype html>
     document.addEventListener("click", event => { const id = event.target.closest("[data-dns]")?.dataset.dns; if (id) loadDNS(id); });
     document.addEventListener("click", event => { const id = event.target.closest("[data-save-policy]")?.dataset.savePolicy; if (id) savePolicy(id).catch(error => showStatus(error.message, true)); });
     document.addEventListener("click", event => { const button = event.target.closest("[data-quarantine-action]"); if (button) resolveQuarantine(button.dataset.quarantineId, button.dataset.quarantineAction).catch(error => showStatus(error.message, true)); });
+    document.querySelector("#login-form").addEventListener("submit", async event => {
+      event.preventDefault();
+      const data = Object.fromEntries(new FormData(event.currentTarget).entries());
+      const response = await fetch("/api/v1/session", {method: "POST", credentials: "same-origin", headers: {"Content-Type": "application/json"}, body: JSON.stringify(data)});
+      const body = await response.json();
+      if (!response.ok) {
+        document.querySelector("#login-error").textContent = body.error || "Login failed";
+        return;
+      }
+      state.csrf = body.csrf_token;
+      document.querySelector("#login-panel").classList.add("hidden");
+      await refresh();
+    });
     searchEl.addEventListener("input", render);
     refresh().catch(error => showStatus(error.message, true));
   </script>

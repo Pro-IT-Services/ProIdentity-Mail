@@ -1,6 +1,9 @@
 package app
 
-import "os"
+import (
+	"os"
+	"strings"
+)
 
 type Config struct {
 	HTTPAddr      string
@@ -14,6 +17,7 @@ type Config struct {
 	MailHostname  string
 	AdminUsername string
 	AdminPassword string
+	SecureCookies bool
 }
 
 func LoadConfig() (Config, error) {
@@ -29,6 +33,7 @@ func LoadConfig() (Config, error) {
 		MailHostname:  valueOrDefault(os.Getenv("PROIDENTITY_MAIL_HOSTNAME"), "mail.local"),
 		AdminUsername: os.Getenv("PROIDENTITY_ADMIN_USERNAME"),
 		AdminPassword: os.Getenv("PROIDENTITY_ADMIN_PASSWORD"),
+		SecureCookies: os.Getenv("PROIDENTITY_SECURE_COOKIES") == "1" || strings.EqualFold(os.Getenv("PROIDENTITY_SECURE_COOKIES"), "true"),
 	}
 	return cfg, nil
 }

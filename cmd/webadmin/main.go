@@ -7,6 +7,7 @@ import (
 	"proidentity-mail/internal/admin"
 	"proidentity-mail/internal/app"
 	"proidentity-mail/internal/db"
+	"proidentity-mail/internal/session"
 )
 
 func main() {
@@ -24,7 +25,9 @@ func main() {
 		sqlStore := admin.NewSQLStore(conn)
 		store = sqlStore
 	}
-	server := app.NewHTTPServer(cfg, store, admin.AuthConfig{Username: cfg.AdminUsername, Password: cfg.AdminPassword})
+	sessions := session.NewManager(session.Options{CookieName: "proidentity_admin_session", Secure: cfg.SecureCookies})
+	limiter := session.NewLoginLimiter(session.Options{})
+	server := app.NewHTTPServer(cfg, store, admin.AuthConfig{Username: cfg.AdminUsername, Password: cfg.AdminPassword, Sessions: sessions, Limiter: limiter})
 	log.Printf("webadmin listening on %s", cfg.HTTPAddr)
 	if err := server.ListenAndServe(); err != nil {
 		log.Fatalf("webadmin stopped: %v", err)

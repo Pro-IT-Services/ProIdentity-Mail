@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"proidentity-mail/internal/domain"
+	"proidentity-mail/internal/session"
 )
 
 func TestHealthEndpoint(t *testing.T) {
@@ -45,9 +46,9 @@ func TestAdminIndexServesWebUI(t *testing.T) {
 	}
 }
 
-func TestAdminIndexRequiresAuthWhenConfigured(t *testing.T) {
+func TestAdminAPIRequiresAuthWhenConfigured(t *testing.T) {
 	handler := NewRouter(&fakeStore{}, AuthConfig{Username: "admin", Password: "secret"})
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/tenants", nil)
 	rec := httptest.NewRecorder()
 
 	handler.ServeHTTP(rec, req)
@@ -70,6 +71,53 @@ func TestAdminAPIAcceptsConfiguredAuth(t *testing.T) {
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d, body %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+}
+
+func TestAdminSessionLoginAndCSRF(t *testing.T) {
+	manager := session.NewManager(session.Options{CookieName: "admin_sid"})
+	handler := NewRouter(&fakeStore{}, AuthConfig{Username: "admin", Password: "secret", Sessions: manager})
+	login := httptest.NewRequest(http.MethodPost, "/api/v1/session", bytes.NewBufferString(`{"username":"admin","password":"secret"}`))
+	login.Header.Set("Content-Type", "application/json")
+	login.Header.Set("User-Agent", "Browser A")
+	login.Header.Set("Accept-Language", "en-US")
+	loginRec := httptest.NewRecorder()
+
+	handler.ServeHTTP(loginRec, login)
+
+	if loginRec.Code != http.StatusOK {
+		t.Fatalf("login status = %d, want %d, body %s", loginRec.Code, http.StatusOK, loginRec.Body.String())
+	}
+	var loginResponse struct {
+		CSRFToken string `json:"csrf_token"`
+	}
+	if err := json.NewDecoder(loginRec.Body).Decode(&loginResponse); err != nil {
+		t.Fatalf("decode login response: %v", err)
+	}
+	if loginResponse.CSRFToken == "" {
+		t.Fatal("csrf token is empty")
+	}
+	cookie := loginRec.Result().Cookies()[0]
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/tenants", bytes.NewBufferString(`{"name":"Example Org","slug":"example"}`))
+	req.Header.Set("User-Agent", "Browser A")
+	req.Header.Set("Accept-Language", "en-US")
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("missing csrf status = %d, want %d", rec.Code, http.StatusForbidden)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/tenants", bytes.NewBufferString(`{"name":"Example Org","slug":"example"}`))
+	req.Header.Set("User-Agent", "Browser A")
+	req.Header.Set("Accept-Language", "en-US")
+	req.Header.Set("X-CSRF-Token", loginResponse.CSRFToken)
+	req.AddCookie(cookie)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("session request status = %d, want %d, body %s", rec.Code, http.StatusCreated, rec.Body.String())
 	}
 }
 
@@ -349,6 +397,7 @@ type fakeStore struct {
 	resolvedQuarantineID     uint64
 	resolvedQuarantineStatus string
 	resolvedQuarantineNote   string
+	auditActions             []string
 }
 
 func (s *fakeStore) CreateTenant(ctx context.Context, tenant domain.Tenant) (domain.Tenant, error) {
@@ -413,6 +462,11 @@ func (s *fakeStore) ListAuditEvents(ctx context.Context) ([]domain.AuditEvent, e
 		TargetID:     "1",
 		MetadataJSON: `{"verdict":"spam"}`,
 	}}, nil
+}
+
+func (s *fakeStore) RecordAuditEvent(ctx context.Context, event domain.AuditEvent) error {
+	s.auditActions = append(s.auditActions, event.Action)
+	return nil
 }
 
 func (s *fakeStore) ListTenantPolicies(ctx context.Context) ([]domain.TenantPolicy, error) {

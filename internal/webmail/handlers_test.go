@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"proidentity-mail/internal/session"
 )
 
 func TestMessagesEndpointRequiresAuth(t *testing.T) {
@@ -105,6 +107,57 @@ func TestSendEndpointUsesAuthenticatedSender(t *testing.T) {
 	}
 	if store.sent.Subject != "Hello" || store.sent.Body != "Sent from webmail" {
 		t.Fatalf("unexpected sent message: %+v", store.sent)
+	}
+}
+
+func TestWebmailSessionLoginAndCSRF(t *testing.T) {
+	manager := session.NewManager(session.Options{CookieName: "webmail_sid"})
+	store := &fakeStore{valid: true}
+	handler := NewRouter(store, manager)
+	login := httptest.NewRequest(http.MethodPost, "/api/v1/session", strings.NewReader(`{"email":"marko@example.com","password":"secret123456"}`))
+	login.Header.Set("Content-Type", "application/json")
+	login.Header.Set("User-Agent", "Browser A")
+	login.Header.Set("Accept-Language", "en-US")
+	loginRec := httptest.NewRecorder()
+
+	handler.ServeHTTP(loginRec, login)
+
+	if loginRec.Code != http.StatusOK {
+		t.Fatalf("login status = %d, want %d, body %s", loginRec.Code, http.StatusOK, loginRec.Body.String())
+	}
+	var loginResponse struct {
+		CSRFToken string `json:"csrf_token"`
+	}
+	if err := json.NewDecoder(loginRec.Body).Decode(&loginResponse); err != nil {
+		t.Fatalf("decode login response: %v", err)
+	}
+	if loginResponse.CSRFToken == "" {
+		t.Fatal("csrf token is empty")
+	}
+	cookie := loginRec.Result().Cookies()[0]
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/send", strings.NewReader(`{"to":["marko@example.com"],"subject":"Hello","body":"Body"}`))
+	req.Header.Set("User-Agent", "Browser A")
+	req.Header.Set("Accept-Language", "en-US")
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("missing csrf status = %d, want %d", rec.Code, http.StatusForbidden)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/send", strings.NewReader(`{"to":["marko@example.com"],"subject":"Hello","body":"Body"}`))
+	req.Header.Set("User-Agent", "Browser A")
+	req.Header.Set("Accept-Language", "en-US")
+	req.Header.Set("X-CSRF-Token", loginResponse.CSRFToken)
+	req.AddCookie(cookie)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("session send status = %d, want %d, body %s", rec.Code, http.StatusAccepted, rec.Body.String())
+	}
+	if store.sent.From != "marko@example.com" {
+		t.Fatalf("from = %q, want session subject", store.sent.From)
 	}
 }
 
@@ -212,6 +265,24 @@ func TestCreateCalendarEndpointUsesAuthenticatedUser(t *testing.T) {
 	}
 }
 
+func TestPasswordChangeEndpointRequiresCurrentPassword(t *testing.T) {
+	store := &fakeStore{valid: true}
+	handler := NewRouter(store)
+	body := `{"current_password":"secret123456","new_password":"newsecret123456"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/password", strings.NewReader(body))
+	req.SetBasicAuth("marko@example.com", "secret123456")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d, body %s", rec.Code, http.StatusNoContent, rec.Body.String())
+	}
+	if store.changedPasswordEmail != "marko@example.com" || store.changedPassword != "newsecret123456" {
+		t.Fatalf("unexpected password change: email=%q password=%q", store.changedPasswordEmail, store.changedPassword)
+	}
+}
+
 func TestCompositeStoreReportsSpamByLearningAndMovingMessage(t *testing.T) {
 	root := t.TempDir()
 	messageDir := filepath.Join(root, "example.com", "marko", "Maildir", "new")
@@ -242,17 +313,19 @@ func TestCompositeStoreReportsSpamByLearningAndMovingMessage(t *testing.T) {
 }
 
 type fakeStore struct {
-	valid           bool
-	sent            OutboundMessage
-	reportedEmail   string
-	reportedID      string
-	reportedVerdict string
-	folder          string
-	movedEmail      string
-	movedID         string
-	movedFolder     string
-	createdContact  Contact
-	createdEvent    CalendarEvent
+	valid                bool
+	sent                 OutboundMessage
+	reportedEmail        string
+	reportedID           string
+	reportedVerdict      string
+	folder               string
+	movedEmail           string
+	movedID              string
+	movedFolder          string
+	createdContact       Contact
+	createdEvent         CalendarEvent
+	changedPasswordEmail string
+	changedPassword      string
 }
 
 func (s *fakeStore) VerifyUserPassword(ctx context.Context, email, password string) (bool, error) {
@@ -310,6 +383,12 @@ func (s *fakeStore) CreateCalendarEvent(ctx context.Context, email string, event
 	s.createdEvent = event
 	event.ID = "planning"
 	return event, nil
+}
+
+func (s *fakeStore) ChangePassword(ctx context.Context, email, newPassword string) error {
+	s.changedPasswordEmail = email
+	s.changedPassword = newPassword
+	return nil
 }
 
 type reportRecorder struct {
