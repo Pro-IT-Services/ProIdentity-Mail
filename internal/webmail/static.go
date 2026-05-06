@@ -524,7 +524,7 @@ const webmailIndexHTML = `<!doctype html>
     const shortFrom = value => String(value || "Unknown").replace(/<.*>/, "").replace(/"/g, "").trim() || "Unknown";
     const serviceBase = () => location.origin.replace(/^http:/, "https:");
     const api = async (path, options = {}) => {
-      const response = await fetch(path, {credentials: "same-origin", ...options, headers: {"Content-Type": "application/json", ...(state.csrf ? {"X-CSRF-Token": state.csrf} : {}), ...(options.headers || {})}});
+      const response = await fetch(path, {credentials: "same-origin", cache: "no-store", ...options, headers: {"Content-Type": "application/json", ...(state.csrf ? {"X-CSRF-Token": state.csrf} : {}), ...(options.headers || {})}});
       if (!response.ok) {
         let message = "Request failed";
         try { message = (await response.json()).error || message; } catch {}
@@ -535,7 +535,7 @@ const webmailIndexHTML = `<!doctype html>
     };
     async function loadMessages() {
       state.view = "mail";
-      const response = await fetch("/api/v1/messages?limit=100&folder=" + encodeURIComponent(state.folder), { credentials: "same-origin" });
+      const response = await fetch("/api/v1/messages?limit=100&folder=" + encodeURIComponent(state.folder), { credentials: "same-origin", cache: "no-store" });
       if (!response.ok) {
         document.querySelector("#login-panel").classList.remove("hidden");
         throw new Error("Mailbox authentication failed");
@@ -545,7 +545,7 @@ const webmailIndexHTML = `<!doctype html>
       render();
     }
     async function bootstrapSession() {
-      const response = await fetch("/api/v1/session", {credentials: "same-origin"});
+      const response = await fetch("/api/v1/session", {credentials: "same-origin", cache: "no-store"});
       if (!response.ok) {
         document.querySelector("#login-panel").classList.remove("hidden");
         return;
@@ -558,7 +558,7 @@ const webmailIndexHTML = `<!doctype html>
     }
     async function moveSelected(folder) {
       if (!state.selected) return;
-      const response = await fetch("/api/v1/messages/" + encodeURIComponent(state.selected.id) + "/move", {method: "POST", credentials: "same-origin", headers: {"Content-Type": "application/json", "X-CSRF-Token": state.csrf}, body: JSON.stringify({folder})});
+      const response = await fetch("/api/v1/messages/" + encodeURIComponent(state.selected.id) + "/move", {method: "POST", credentials: "same-origin", cache: "no-store", headers: {"Content-Type": "application/json", "X-CSRF-Token": state.csrf}, body: JSON.stringify({folder})});
       if (!response.ok) throw new Error("Move failed");
       await loadMessages();
     }
@@ -647,7 +647,7 @@ const webmailIndexHTML = `<!doctype html>
     }
     async function reportSelected(verdict) {
       if (!state.selected) return;
-      const response = await fetch("/api/v1/messages/" + encodeURIComponent(state.selected.id) + "/report", {method: "POST", credentials: "same-origin", headers: {"Content-Type": "application/json", "X-CSRF-Token": state.csrf}, body: JSON.stringify({verdict})});
+      const response = await fetch("/api/v1/messages/" + encodeURIComponent(state.selected.id) + "/report", {method: "POST", credentials: "same-origin", cache: "no-store", headers: {"Content-Type": "application/json", "X-CSRF-Token": state.csrf}, body: JSON.stringify({verdict})});
       if (!response.ok) throw new Error("Message report failed");
       await loadMessages();
     }
@@ -676,7 +676,7 @@ const webmailIndexHTML = `<!doctype html>
         document.querySelector("#reader").innerHTML = "<h2>No messages yet</h2><div class=\"body\">New mail delivered by Postfix and Dovecot will appear here after refresh.</div>";
         return;
       }
-          fetch("/api/v1/messages/" + encodeURIComponent(item.id), { credentials: "same-origin" })
+          fetch("/api/v1/messages/" + encodeURIComponent(item.id), { credentials: "same-origin", cache: "no-store" })
         .then(response => response.ok ? response.json() : item)
         .then(detail => {
           document.querySelector("#reader").innerHTML =
@@ -691,7 +691,7 @@ const webmailIndexHTML = `<!doctype html>
       state.email = String(data.get("email") || "");
       document.querySelector("#error").textContent = "";
       try {
-        const response = await fetch("/api/v1/session", {method: "POST", credentials: "same-origin", headers: {"Content-Type": "application/json"}, body: JSON.stringify({email: state.email, password: String(data.get("password") || "")})});
+        const response = await fetch("/api/v1/session", {method: "POST", credentials: "same-origin", cache: "no-store", headers: {"Content-Type": "application/json"}, body: JSON.stringify({email: state.email, password: String(data.get("password") || "")})});
         const body = await response.json();
         if (!response.ok) throw new Error(body.error || "Mailbox authentication failed");
         state.csrf = body.csrf_token;
@@ -711,15 +711,16 @@ const webmailIndexHTML = `<!doctype html>
     document.querySelector("#event-modal").addEventListener("submit", saveEvent);
     document.querySelector("#compose-modal").addEventListener("submit", async event => {
       event.preventDefault();
+      const form = event.currentTarget;
       const data = new FormData(event.currentTarget);
       document.querySelector("#compose-error").textContent = "";
       const payload = {to: String(data.get("to") || "").split(",").map(item => item.trim()).filter(Boolean), subject: String(data.get("subject") || ""), body: String(data.get("body") || "")};
-      const response = await fetch("/api/v1/send", {method: "POST", credentials: "same-origin", headers: {"Content-Type": "application/json", "X-CSRF-Token": state.csrf}, body: JSON.stringify(payload)});
+      const response = await fetch("/api/v1/send", {method: "POST", credentials: "same-origin", cache: "no-store", headers: {"Content-Type": "application/json", "X-CSRF-Token": state.csrf}, body: JSON.stringify(payload)});
       if (!response.ok) {
         document.querySelector("#compose-error").textContent = "Send failed";
         return;
       }
-      event.currentTarget.reset();
+      form.reset();
       document.querySelector("#compose-modal").classList.add("hidden");
       await loadMessages();
     });

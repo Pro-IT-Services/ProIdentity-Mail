@@ -531,7 +531,7 @@ const adminIndexHTML = `<!doctype html>
     const showStatus = (text, error) => { statusEl.textContent = text || ""; statusEl.className = error ? "toast error" : "toast"; };
     const api = async (path, options = {}) => {
       const headers = {"Content-Type": "application/json", ...(state.csrf ? {"X-CSRF-Token": state.csrf} : {}), ...(options.headers || {})};
-      const response = await fetch(path, { credentials: "same-origin", ...options, headers });
+      const response = await fetch(path, { credentials: "same-origin", cache: "no-store", ...options, headers });
       if (response.status === 401 || response.status === 403) document.querySelector("#login-panel").classList.remove("hidden");
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || response.statusText);
@@ -583,7 +583,7 @@ const adminIndexHTML = `<!doctype html>
       showStatus("Loaded live platform data");
     }
     async function bootstrapSession() {
-      const response = await fetch("/api/v1/session", {credentials: "same-origin"});
+      const response = await fetch("/api/v1/session", {credentials: "same-origin", cache: "no-store"});
       if (!response.ok) {
         document.querySelector("#login-panel").classList.remove("hidden");
         return;
@@ -674,7 +674,7 @@ const adminIndexHTML = `<!doctype html>
     document.querySelector("#login-form").addEventListener("submit", async event => {
       event.preventDefault();
       const data = Object.fromEntries(new FormData(event.currentTarget).entries());
-      const response = await fetch("/api/v1/session", {method: "POST", credentials: "same-origin", headers: {"Content-Type": "application/json"}, body: JSON.stringify(data)});
+      const response = await fetch("/api/v1/session", {method: "POST", credentials: "same-origin", cache: "no-store", headers: {"Content-Type": "application/json"}, body: JSON.stringify(data)});
       const body = await response.json();
       if (!response.ok) {
         document.querySelector("#login-error").textContent = body.error || "Login failed";
