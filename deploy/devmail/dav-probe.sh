@@ -54,6 +54,9 @@ if [[ "${contact_code}" != "201" ]]; then
 fi
 curl -sS -m 5 -u "${email}:${password}" "http://127.0.0.1:8081/dav/addressbooks/${email}/default/${local_part}.vcf" | tee /tmp/proidentity-dav-contact-get.out | sed -n '1,8p'
 grep -q "EMAIL:${email}" /tmp/proidentity-dav-contact-get.out
+echo "== CardDAV REPORT =="
+curl -sS -m 5 -u "${email}:${password}" -X REPORT "http://127.0.0.1:8081/dav/addressbooks/${email}/default/" | tee /tmp/proidentity-dav-report.out | sed -n '1,16p'
+grep -q "${local_part}.vcf" /tmp/proidentity-dav-report.out
 
 echo "== iCalendar PUT/GET =="
 ics="BEGIN:VCALENDAR

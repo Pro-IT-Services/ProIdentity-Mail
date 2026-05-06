@@ -5,6 +5,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -189,6 +190,28 @@ func TestPutAndGetCalendarObject(t *testing.T) {
 	}
 }
 
+func TestReportListsAddressBookObjects(t *testing.T) {
+	store := &fakeStore{valid: true, contacts: map[string]DAVObject{
+		"marko@example.com/contact-1.vcf": {Href: "contact-1.vcf", ETag: `"contact-etag"`, Body: []byte("BEGIN:VCARD\r\nEND:VCARD\r\n")},
+	}}
+	handler := NewRouter(store)
+	req := httptest.NewRequest("REPORT", "/dav/addressbooks/marko@example.com/default/", nil)
+	req.SetBasicAuth("marko@example.com", "secret123456")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusMultiStatus {
+		t.Fatalf("status = %d, want %d, body %s", rec.Code, http.StatusMultiStatus, rec.Body.String())
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte("/dav/addressbooks/marko@example.com/default/contact-1.vcf")) {
+		t.Fatalf("REPORT missing contact href: %s", rec.Body.String())
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte("contact-etag")) {
+		t.Fatalf("REPORT missing etag: %s", rec.Body.String())
+	}
+}
+
 type fakeStore struct {
 	valid    bool
 	contacts map[string]DAVObject
@@ -223,4 +246,24 @@ func (s *fakeStore) PutCalendarObject(ctx context.Context, email, href string, b
 
 func (s *fakeStore) GetCalendarObject(ctx context.Context, email, href string) (DAVObject, error) {
 	return s.events[email+"/"+href], nil
+}
+
+func (s *fakeStore) ListContacts(ctx context.Context, email string) ([]DAVObject, error) {
+	var objects []DAVObject
+	for key, object := range s.contacts {
+		if strings.HasPrefix(key, email+"/") {
+			objects = append(objects, object)
+		}
+	}
+	return objects, nil
+}
+
+func (s *fakeStore) ListCalendarObjects(ctx context.Context, email string) ([]DAVObject, error) {
+	var objects []DAVObject
+	for key, object := range s.events {
+		if strings.HasPrefix(key, email+"/") {
+			objects = append(objects, object)
+		}
+	}
+	return objects, nil
 }

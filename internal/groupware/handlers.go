@@ -24,6 +24,8 @@ type Store interface {
 	GetContact(ctx context.Context, email, href string) (DAVObject, error)
 	PutCalendarObject(ctx context.Context, email, href string, body []byte) (DAVObject, error)
 	GetCalendarObject(ctx context.Context, email, href string) (DAVObject, error)
+	ListContacts(ctx context.Context, email string) ([]DAVObject, error)
+	ListCalendarObjects(ctx context.Context, email string) ([]DAVObject, error)
 }
 
 type handler struct {
@@ -66,8 +68,14 @@ func (h handler) dav(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.getObject(w, r, email)
+	case "REPORT":
+		email, ok := h.authorized(w, r)
+		if !ok {
+			return
+		}
+		h.report(w, r, email)
 	default:
-		w.Header().Set("Allow", "OPTIONS, PROPFIND, GET, PUT")
+		w.Header().Set("Allow", "OPTIONS, PROPFIND, GET, PUT, REPORT")
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
 }
@@ -165,6 +173,34 @@ func (h handler) getObject(w http.ResponseWriter, r *http.Request, authEmail str
 	_, _ = w.Write(object.Body)
 }
 
+func (h handler) report(w http.ResponseWriter, r *http.Request, authEmail string) {
+	kind, pathEmail, ok := collectionPath(r.URL.Path)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	if !sameEmail(authEmail, pathEmail) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	var objects []DAVObject
+	var err error
+	switch kind {
+	case "addressbooks":
+		objects, err = h.store.ListContacts(r.Context(), authEmail)
+	case "calendars":
+		objects, err = h.store.ListCalendarObjects(r.Context(), authEmail)
+	default:
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		http.Error(w, "report failed", http.StatusInternalServerError)
+		return
+	}
+	writeObjectsMultiStatus(w, kind, authEmail, objects)
+}
+
 func objectPath(path string) (kind, email, href string, ok bool) {
 	parts := strings.Split(strings.Trim(path, "/"), "/")
 	if len(parts) != 5 || parts[0] != "dav" || parts[3] != "default" || parts[4] == "" {
@@ -177,6 +213,30 @@ func objectPath(path string) (kind, email, href string, ok bool) {
 		return "", "", "", false
 	}
 	return parts[1], strings.ToLower(parts[2]), parts[4], true
+}
+
+func collectionPath(path string) (kind, email string, ok bool) {
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	if len(parts) != 4 || parts[0] != "dav" || parts[3] != "default" {
+		return "", "", false
+	}
+	if parts[1] != "addressbooks" && parts[1] != "calendars" {
+		return "", "", false
+	}
+	if !strings.Contains(parts[2], "@") {
+		return "", "", false
+	}
+	return parts[1], strings.ToLower(parts[2]), true
+}
+
+func writeObjectsMultiStatus(w http.ResponseWriter, kind, email string, objects []DAVObject) {
+	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+	w.WriteHeader(http.StatusMultiStatus)
+	_, _ = fmt.Fprint(w, `<?xml version="1.0" encoding="UTF-8"?>`+"\n"+`<D:multistatus xmlns:D="DAV:">`+"\n")
+	for _, object := range objects {
+		_, _ = fmt.Fprintf(w, "  <D:response><D:href>/dav/%s/%s/default/%s</D:href><D:propstat><D:prop><D:getetag>%s</D:getetag></D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response>\n", xmlText(kind), xmlText(email), xmlText(object.Href), xmlText(object.ETag))
+	}
+	_, _ = fmt.Fprint(w, `</D:multistatus>`+"\n")
 }
 
 func sameEmail(left, right string) bool {

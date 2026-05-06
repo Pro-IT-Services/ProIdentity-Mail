@@ -82,6 +82,29 @@ func (s SQLStore) GetContact(ctx context.Context, email, href string) (DAVObject
 	return object, nil
 }
 
+func (s SQLStore) ListContacts(ctx context.Context, email string) ([]DAVObject, error) {
+	bookID, err := s.ensureAddressBook(ctx, email)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT href, etag, vcard FROM contact_objects WHERE address_book_id = ? ORDER BY href`, bookID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var objects []DAVObject
+	for rows.Next() {
+		var object DAVObject
+		var body string
+		if err := rows.Scan(&object.Href, &object.ETag, &body); err != nil {
+			return nil, err
+		}
+		object.Body = []byte(body)
+		objects = append(objects, object)
+	}
+	return objects, rows.Err()
+}
+
 func (s SQLStore) PutCalendarObject(ctx context.Context, email, href string, body []byte) (DAVObject, error) {
 	calendarID, err := s.ensureCalendar(ctx, email)
 	if err != nil {
@@ -121,6 +144,29 @@ func (s SQLStore) GetCalendarObject(ctx context.Context, email, href string) (DA
 	}
 	object.Body = []byte(body)
 	return object, nil
+}
+
+func (s SQLStore) ListCalendarObjects(ctx context.Context, email string) ([]DAVObject, error) {
+	calendarID, err := s.ensureCalendar(ctx, email)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT href, etag, icalendar FROM calendar_objects WHERE calendar_id = ? ORDER BY href`, calendarID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var objects []DAVObject
+	for rows.Next() {
+		var object DAVObject
+		var body string
+		if err := rows.Scan(&object.Href, &object.ETag, &body); err != nil {
+			return nil, err
+		}
+		object.Body = []byte(body)
+		objects = append(objects, object)
+	}
+	return objects, rows.Err()
 }
 
 func (s SQLStore) ensureAddressBook(ctx context.Context, email string) (uint64, error) {
