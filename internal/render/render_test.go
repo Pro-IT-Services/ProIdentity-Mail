@@ -31,6 +31,9 @@ func TestRenderPostfixMainIncludesVirtualMailboxDomain(t *testing.T) {
 	if !strings.Contains(text, "smtpd_tls_cert_file = /etc/ssl/certs/ssl-cert-snakeoil.pem") {
 		t.Fatalf("rendered config missing TLS cert path: %s", text)
 	}
+	if !strings.Contains(text, "milter_mail_macros = i {auth_type} {auth_authen} {auth_author} {mail_addr}") {
+		t.Fatalf("rendered config missing auth milter macros for DKIM signing: %s", text)
+	}
 }
 
 func TestRenderPostfixMasterEnablesSubmission(t *testing.T) {
@@ -127,5 +130,71 @@ func TestRenderRspamdLocalIsLocalDFragment(t *testing.T) {
 	}
 	if !strings.Contains(text, `servers = "127.0.0.1";`) {
 		t.Fatalf("rspamd redis fragment missing server: %s", text)
+	}
+}
+
+func TestRenderRspamdAntivirusEnablesClamAVReject(t *testing.T) {
+	out, err := RenderRspamdAntivirus()
+	if err != nil {
+		t.Fatalf("RenderRspamdAntivirus returned error: %v", err)
+	}
+	text := string(out)
+	for _, want := range []string{
+		"clamav {",
+		`type = "clamav";`,
+		`servers = "/run/clamav/clamd.ctl";`,
+		`action = "reject";`,
+		`symbol = "CLAM_VIRUS";`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("antivirus config missing %q: %s", want, text)
+		}
+	}
+}
+
+func TestRenderRspamdDKIMSigningUsesDomainKeyPath(t *testing.T) {
+	out, err := RenderRspamdDKIMSigning(RspamdDKIMSigningData{
+		Domains: []DKIMSigningDomain{
+			{
+				Domain:   "example.com",
+				Selector: "mail",
+				KeyPath:  "/var/lib/rspamd/dkim/example.com.mail.key",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("RenderRspamdDKIMSigning returned error: %v", err)
+	}
+	text := string(out)
+	for _, want := range []string{
+		"enabled = true;",
+		"example.com {",
+		`path = "/var/lib/rspamd/dkim/example.com.mail.key";`,
+		`selector = "mail";`,
+		"sign_authenticated = true;",
+		"sign_local = true;",
+		"sign_inbound = false;",
+		"use_esld = false;",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("dkim signing config missing %q: %s", want, text)
+		}
+	}
+}
+
+func TestRenderRspamdActionsAndHeaders(t *testing.T) {
+	actions, err := RenderRspamdActions()
+	if err != nil {
+		t.Fatalf("RenderRspamdActions returned error: %v", err)
+	}
+	headers, err := RenderRspamdMilterHeaders()
+	if err != nil {
+		t.Fatalf("RenderRspamdMilterHeaders returned error: %v", err)
+	}
+	if !strings.Contains(string(actions), "reject = 15;") || !strings.Contains(string(actions), "add_header = 6;") {
+		t.Fatalf("actions config missing thresholds: %s", string(actions))
+	}
+	if !strings.Contains(string(headers), `"x-spamd-result"`) || !strings.Contains(string(headers), `"authentication-results"`) {
+		t.Fatalf("milter headers config missing useful headers: %s", string(headers))
 	}
 }

@@ -21,6 +21,16 @@ type PostfixMySQLData struct {
 	Password string
 }
 
+type DKIMSigningDomain struct {
+	Domain   string
+	Selector string
+	KeyPath  string
+}
+
+type RspamdDKIMSigningData struct {
+	Domains []DKIMSigningDomain
+}
+
 type postfixMySQLTemplateData struct {
 	Database string
 	User     string
@@ -58,6 +68,22 @@ func RenderDovecotLocal() ([]byte, error) {
 
 func RenderRspamdLocal() ([]byte, error) {
 	return []byte(rspamdLocalTemplate), nil
+}
+
+func RenderRspamdAntivirus() ([]byte, error) {
+	return []byte(bytes.TrimLeft([]byte(rspamdAntivirusTemplate), "\n")), nil
+}
+
+func RenderRspamdDKIMSigning(data RspamdDKIMSigningData) ([]byte, error) {
+	return renderTemplate("rspamd-dkim-signing", rspamdDKIMSigningTemplate, data)
+}
+
+func RenderRspamdActions() ([]byte, error) {
+	return []byte(bytes.TrimLeft([]byte(rspamdActionsTemplate), "\n")), nil
+}
+
+func RenderRspamdMilterHeaders() ([]byte, error) {
+	return []byte(bytes.TrimLeft([]byte(rspamdMilterHeadersTemplate), "\n")), nil
 }
 
 func renderPostfixMySQL(data PostfixMySQLData, query string) ([]byte, error) {

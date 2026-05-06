@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strconv"
 
 	"github.com/go-chi/chi/v5"
 
@@ -15,6 +16,7 @@ type Store interface {
 	CreateTenant(ctx context.Context, tenant domain.Tenant) (domain.Tenant, error)
 	CreateDomain(ctx context.Context, mailDomain domain.Domain) (domain.Domain, error)
 	CreateUser(ctx context.Context, user domain.User) (domain.User, error)
+	GetDomainDNS(ctx context.Context, domainID uint64) (domain.DomainDNS, error)
 }
 
 type handler struct {
@@ -27,6 +29,7 @@ func NewRouter(store Store) http.Handler {
 	r.Get("/healthz", health)
 	r.Post("/api/v1/tenants", h.createTenant)
 	r.Post("/api/v1/domains", h.createDomain)
+	r.Get("/api/v1/domains/{domainID}/dns", h.getDomainDNS)
 	r.Post("/api/v1/users", h.createUser)
 	return r
 }
@@ -124,6 +127,24 @@ func (h handler) createUser(w http.ResponseWriter, r *http.Request) {
 	}
 	user.PasswordHash = ""
 	writeJSON(w, http.StatusCreated, user)
+}
+
+func (h handler) getDomainDNS(w http.ResponseWriter, r *http.Request) {
+	if h.store == nil {
+		writeError(w, http.StatusServiceUnavailable, "store unavailable")
+		return
+	}
+	domainID, err := strconv.ParseUint(chi.URLParam(r, "domainID"), 10, 64)
+	if err != nil || domainID == 0 {
+		writeError(w, http.StatusBadRequest, "valid domain id is required")
+		return
+	}
+	dns, err := h.store.GetDomainDNS(r.Context(), domainID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "get domain dns failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, dns)
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"flag"
 	"fmt"
 	"log"
@@ -61,6 +62,20 @@ func runRender(cfg app.Config) {
 	if err := os.MkdirAll(cfg.ConfigDir, 0750); err != nil {
 		log.Fatalf("create config dir: %v", err)
 	}
+	if cfg.DBDSN == "" {
+		log.Fatal("PROIDENTITY_DB_DSN is required")
+	}
+	ctx := context.Background()
+	conn, err := db.Open(ctx, cfg.DBDSN)
+	if err != nil {
+		log.Fatalf("open db: %v", err)
+	}
+	defer conn.Close()
+	dkimDomains, err := loadDKIMSigningDomains(ctx, conn)
+	if err != nil {
+		log.Fatalf("load dkim signing domains: %v", err)
+	}
+
 	writeRendered(filepath.Join(cfg.ConfigDir, "postfix-main.cf"), must(render.RenderPostfixMain(render.PostfixMainData{Hostname: cfg.MailHostname})))
 	writeRendered(filepath.Join(cfg.ConfigDir, "postfix-master.cf"), must(render.RenderPostfixMaster()))
 	writeRendered(filepath.Join(cfg.ConfigDir, "dovecot-sql.conf.ext"), must(render.RenderDovecotSQL(render.DovecotSQLData{Database: cfg.DBName, User: cfg.DBUser, Password: cfg.DBPassword})))
@@ -70,7 +85,37 @@ func runRender(cfg app.Config) {
 	writeRendered(filepath.Join(cfg.ConfigDir, "virtual-mailbox-maps.cf"), must(render.RenderPostfixVirtualMailboxMaps(mysqlData)))
 	writeRendered(filepath.Join(cfg.ConfigDir, "virtual-alias-maps.cf"), must(render.RenderPostfixVirtualAliasMaps(mysqlData)))
 	writeRendered(filepath.Join(cfg.ConfigDir, "rspamd-local.d-redis.conf"), must(render.RenderRspamdLocal()))
+	writeRendered(filepath.Join(cfg.ConfigDir, "rspamd-local.d-antivirus.conf"), must(render.RenderRspamdAntivirus()))
+	writeRendered(filepath.Join(cfg.ConfigDir, "rspamd-local.d-dkim_signing.conf"), must(render.RenderRspamdDKIMSigning(render.RspamdDKIMSigningData{Domains: dkimDomains})))
+	writeRendered(filepath.Join(cfg.ConfigDir, "rspamd-local.d-actions.conf"), must(render.RenderRspamdActions()))
+	writeRendered(filepath.Join(cfg.ConfigDir, "rspamd-local.d-milter_headers.conf"), must(render.RenderRspamdMilterHeaders()))
 	fmt.Printf("rendered configs to %s\n", cfg.ConfigDir)
+}
+
+func loadDKIMSigningDomains(ctx context.Context, conn interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+}) ([]render.DKIMSigningDomain, error) {
+	rows, err := conn.QueryContext(ctx, `
+		SELECT d.name, k.selector, k.key_path
+		FROM dkim_keys k
+		JOIN domains d ON d.id = k.domain_id
+		WHERE k.status = 'active'
+		  AND d.status IN ('pending', 'active')
+		ORDER BY d.name, k.selector`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var domains []render.DKIMSigningDomain
+	for rows.Next() {
+		var item render.DKIMSigningDomain
+		if err := rows.Scan(&item.Domain, &item.Selector, &item.KeyPath); err != nil {
+			return nil, err
+		}
+		domains = append(domains, item)
+	}
+	return domains, rows.Err()
 }
 
 func runHealth() {

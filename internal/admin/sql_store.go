@@ -3,6 +3,8 @@ package admin
 import (
 	"context"
 	"database/sql"
+	"fmt"
+	"strings"
 
 	"proidentity-mail/internal/domain"
 )
@@ -67,4 +69,50 @@ func (s SQLStore) CreateUser(ctx context.Context, user domain.User) (domain.User
 	user.Status = "active"
 	user.QuotaBytes = 10737418240
 	return user, nil
+}
+
+func (s SQLStore) GetDomainDNS(ctx context.Context, domainID uint64) (domain.DomainDNS, error) {
+	var domainName string
+	var selector sql.NullString
+	var dkimTXT sql.NullString
+	err := s.db.QueryRowContext(ctx, `
+		SELECT d.name, k.selector, k.public_dns_txt
+		FROM domains d
+		LEFT JOIN dkim_keys k ON k.domain_id = d.id AND k.status = 'active'
+		WHERE d.id = ?
+		ORDER BY k.created_at DESC
+		LIMIT 1
+	`, domainID).Scan(&domainName, &selector, &dkimTXT)
+	if err != nil {
+		return domain.DomainDNS{}, err
+	}
+	priority := 10
+	records := []domain.DNSRecord{
+		{Type: "MX", Name: domainName, Value: "mail." + domainName, Priority: &priority},
+		{Type: "TXT", Name: domainName, Value: "v=spf1 mx -all"},
+		{Type: "TXT", Name: "_dmarc." + domainName, Value: "v=DMARC1; p=quarantine; rua=mailto:dmarc@" + domainName},
+		{Type: "TXT", Name: "_mta-sts." + domainName, Value: "v=STSv1; id=2026050601"},
+		{Type: "TXT", Name: "_smtp._tls." + domainName, Value: "v=TLSRPTv1; rua=mailto:tlsrpt@" + domainName},
+	}
+	if selector.Valid && dkimTXT.Valid && dkimTXT.String != "" {
+		records = append(records, domain.DNSRecord{
+			Type:  "TXT",
+			Name:  fmt.Sprintf("%s._domainkey.%s", selector.String, domainName),
+			Value: normalizeDKIMTXT(dkimTXT.String),
+		})
+	}
+	return domain.DomainDNS{DomainID: domainID, Domain: domainName, Records: records}, nil
+}
+
+func normalizeDKIMTXT(value string) string {
+	value = strings.ReplaceAll(value, "\r", "")
+	value = strings.ReplaceAll(value, "\n", " ")
+	if start := strings.Index(value, "("); start >= 0 {
+		if end := strings.LastIndex(value, ")"); end > start {
+			value = value[start+1 : end]
+		}
+	}
+	value = strings.ReplaceAll(value, `"`, "")
+	value = strings.Join(strings.Fields(value), " ")
+	return value
 }

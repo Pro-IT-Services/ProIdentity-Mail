@@ -101,6 +101,38 @@ func TestCreateUserEndpointHashesPassword(t *testing.T) {
 	}
 }
 
+func TestDomainDNSEndpoint(t *testing.T) {
+	store := &fakeStore{}
+	handler := NewRouter(store)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/domains/22/dns", nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var response domain.DomainDNS
+	if err := json.NewDecoder(rec.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.DomainID != 22 {
+		t.Fatalf("domain id = %d, want 22", response.DomainID)
+	}
+	if len(response.Records) < 4 {
+		t.Fatalf("expected MX/SPF/DMARC/DKIM records, got %+v", response.Records)
+	}
+}
+
+func TestNormalizeDKIMTXTExtractsTXTValue(t *testing.T) {
+	raw := "mail._domainkey IN TXT ( \"v=DKIM1; k=rsa; \"\n\t\"p=abc123\"\n) ;"
+	got := normalizeDKIMTXT(raw)
+	want := "v=DKIM1; k=rsa; p=abc123"
+	if got != want {
+		t.Fatalf("normalizeDKIMTXT() = %q, want %q", got, want)
+	}
+}
+
 type fakeStore struct {
 	tenant     domain.Tenant
 	mailDomain domain.Domain
@@ -126,4 +158,18 @@ func (s *fakeStore) CreateUser(ctx context.Context, user domain.User) (domain.Us
 	user.ID = 33
 	user.Status = "active"
 	return user, nil
+}
+
+func (s *fakeStore) GetDomainDNS(ctx context.Context, domainID uint64) (domain.DomainDNS, error) {
+	priority := 10
+	return domain.DomainDNS{
+		DomainID: domainID,
+		Domain:   "example.com",
+		Records: []domain.DNSRecord{
+			{Type: "MX", Name: "example.com", Value: "mail.example.com", Priority: &priority},
+			{Type: "TXT", Name: "example.com", Value: "v=spf1 mx -all"},
+			{Type: "TXT", Name: "_dmarc.example.com", Value: "v=DMARC1; p=quarantine; rua=mailto:dmarc@example.com"},
+			{Type: "TXT", Name: "mail._domainkey.example.com", Value: "v=DKIM1; k=rsa; p=test"},
+		},
+	}, nil
 }

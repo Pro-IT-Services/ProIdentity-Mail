@@ -24,6 +24,7 @@ smtpd_milters = inet:127.0.0.1:11332
 non_smtpd_milters = inet:127.0.0.1:11332
 milter_protocol = 6
 milter_default_action = tempfail
+milter_mail_macros = i {auth_type} {auth_authen} {auth_author} {mail_addr}
 `
 
 const postfixMasterTemplate = `
@@ -125,4 +126,52 @@ query = {{ .Query }}
 
 const rspamdLocalTemplate = `
 servers = "127.0.0.1";
+`
+
+const rspamdAntivirusTemplate = `
+clamav {
+  type = "clamav";
+  servers = "/run/clamav/clamd.ctl";
+  action = "reject";
+  symbol = "CLAM_VIRUS";
+  scan_mime_parts = true;
+  scan_text_mime = true;
+  scan_image_mime = true;
+  max_size = 50000000;
+  log_clean = false;
+}
+`
+
+const rspamdDKIMSigningTemplate = `
+enabled = true;
+sign_authenticated = true;
+sign_local = true;
+sign_inbound = false;
+allow_hdrfrom_mismatch = false;
+allow_username_mismatch = false;
+use_domain = "header";
+use_esld = false;
+try_fallback = false;
+{{- if .Domains }}
+domain {
+{{- range .Domains }}
+  {{ .Domain }} {
+    selector = "{{ .Selector }}";
+    path = "{{ .KeyPath }}";
+  }
+{{- end }}
+}
+{{- end }}
+`
+
+const rspamdActionsTemplate = `
+reject = 15;
+add_header = 6;
+greylist = 4;
+subject = "[SPAM] %s";
+`
+
+const rspamdMilterHeadersTemplate = `
+use = ["x-spamd-result", "x-rspamd-server", "x-rspamd-queue-id", "authentication-results"];
+authenticated_headers = ["authentication-results"];
 `

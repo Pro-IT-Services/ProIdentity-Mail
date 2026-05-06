@@ -42,3 +42,16 @@ type Alias struct {
 	Destination     string    `json:"destination"`
 	CreatedAt       time.Time `json:"created_at"`
 }
+
+type DNSRecord struct {
+	Type     string `json:"type"`
+	Name     string `json:"name"`
+	Value    string `json:"value"`
+	Priority *int   `json:"priority,omitempty"`
+}
+
+type DomainDNS struct {
+	DomainID uint64      `json:"domain_id"`
+	Domain   string      `json:"domain"`
+	Records  []DNSRecord `json:"records"`
+}

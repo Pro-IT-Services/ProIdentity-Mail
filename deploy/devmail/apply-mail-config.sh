@@ -20,10 +20,31 @@ if ! id vmail >/dev/null 2>&1; then
 fi
 
 mkdir -p /var/vmail /etc/postfix/proidentity /etc/proidentity-mail/backups
+mkdir -p /var/lib/rspamd/dkim
 chown -R vmail:vmail /var/vmail
 chmod 0750 /var/vmail
+chown _rspamd:_rspamd /var/lib/rspamd/dkim
+chmod 0750 /var/lib/rspamd/dkim
 
 /opt/proidentity-mail/bin/mailctl render
+
+sql_escape() {
+  printf "%s" "$1" | sed "s/'/''/g"
+}
+
+while IFS=$'\t' read -r domain_id domain_name selector; do
+  [[ -n "${domain_id}" && -n "${domain_name}" && -n "${selector}" ]] || continue
+  key_path="/var/lib/rspamd/dkim/${domain_name}.${selector}.key"
+  if [[ ! -f "${key_path}" ]]; then
+    dns_txt="$(rspamadm dkim_keygen -d "${domain_name}" -s "${selector}" -b 2048 -k "${key_path}" -o dns)"
+    chown _rspamd:_rspamd "${key_path}"
+    chmod 0640 "${key_path}"
+    escaped_dns="$(sql_escape "${dns_txt}")"
+    escaped_key="$(sql_escape "${key_path}")"
+    escaped_selector="$(sql_escape "${selector}")"
+    mariadb -D "${PROIDENTITY_DB_NAME}" -e "INSERT INTO dkim_keys(domain_id, selector, key_path, public_dns_txt, status) VALUES (${domain_id}, '${escaped_selector}', '${escaped_key}', '${escaped_dns}', 'active') ON DUPLICATE KEY UPDATE key_path=VALUES(key_path), public_dns_txt=VALUES(public_dns_txt), status='active'"
+  fi
+done < <(mariadb --batch --skip-column-names -D "${PROIDENTITY_DB_NAME}" -e "SELECT d.id, d.name, d.dkim_selector FROM domains d LEFT JOIN dkim_keys k ON k.domain_id = d.id AND k.selector = d.dkim_selector AND k.status = 'active' WHERE d.status IN ('pending','active') AND k.id IS NULL")
 
 backup_dir="/etc/proidentity-mail/backups/$(date +%Y%m%d-%H%M%S)"
 mkdir -p "${backup_dir}"
@@ -44,6 +65,10 @@ sed -i 's/^!include auth-system.conf.ext/#!include auth-system.conf.ext/' /etc/d
 
 mkdir -p /etc/rspamd/local.d
 install -m 0644 /etc/proidentity-mail/generated/rspamd-local.d-redis.conf /etc/rspamd/local.d/redis.conf
+install -m 0644 /etc/proidentity-mail/generated/rspamd-local.d-antivirus.conf /etc/rspamd/local.d/antivirus.conf
+install -m 0644 /etc/proidentity-mail/generated/rspamd-local.d-dkim_signing.conf /etc/rspamd/local.d/dkim_signing.conf
+install -m 0644 /etc/proidentity-mail/generated/rspamd-local.d-actions.conf /etc/rspamd/local.d/actions.conf
+install -m 0644 /etc/proidentity-mail/generated/rspamd-local.d-milter_headers.conf /etc/rspamd/local.d/milter_headers.conf
 
 postfix check
 doveconf >/dev/null
