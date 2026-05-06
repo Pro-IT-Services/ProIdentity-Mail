@@ -536,10 +536,25 @@ const webmailIndexHTML = `<!doctype html>
     async function loadMessages() {
       state.view = "mail";
       const response = await fetch("/api/v1/messages?limit=100&folder=" + encodeURIComponent(state.folder), { credentials: "same-origin" });
-      if (!response.ok) throw new Error("Mailbox authentication failed");
+      if (!response.ok) {
+        document.querySelector("#login-panel").classList.remove("hidden");
+        throw new Error("Mailbox authentication failed");
+      }
       state.messages = await response.json();
       state.selected = state.messages[0] || null;
       render();
+    }
+    async function bootstrapSession() {
+      const response = await fetch("/api/v1/session", {credentials: "same-origin"});
+      if (!response.ok) {
+        document.querySelector("#login-panel").classList.remove("hidden");
+        return;
+      }
+      const body = await response.json();
+      state.csrf = body.csrf_token || "";
+      state.email = body.email || "";
+      document.querySelector("#login-panel").classList.add("hidden");
+      await loadMessages();
     }
     async function moveSelected(folder) {
       if (!state.selected) return;
@@ -747,6 +762,7 @@ const webmailIndexHTML = `<!doctype html>
       state.selected = state.messages.find(item => item.id === button.dataset.id) || null;
       render();
     });
+    bootstrapSession().catch(error => document.querySelector("#error").textContent = error.message);
   </script>
 </body>
 </html>

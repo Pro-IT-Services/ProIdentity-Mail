@@ -62,6 +62,7 @@ func NewRouter(store Store, authConfig ...AuthConfig) http.Handler {
 	r.Get("/.well-known/carddav", wellKnownDAV)
 	r.Head("/.well-known/carddav", wellKnownDAV)
 	r.Get("/", h.index)
+	r.Get("/api/v1/session", h.login)
 	r.Post("/api/v1/session", h.login)
 	r.Delete("/api/v1/session", h.logout)
 	r.Group(func(protected chi.Router) {
@@ -113,6 +114,10 @@ func (h handler) requireAdmin(next http.Handler) http.Handler {
 				next.ServeHTTP(w, r)
 				return
 			}
+			if _, _, ok := r.BasicAuth(); !ok {
+				writeError(w, http.StatusUnauthorized, "unauthorized")
+				return
+			}
 		}
 		username, password, ok := r.BasicAuth()
 		if !ok || subtle.ConstantTimeCompare([]byte(username), []byte(h.auth.Username)) != 1 || subtle.ConstantTimeCompare([]byte(password), []byte(h.auth.Password)) != 1 {
@@ -127,6 +132,15 @@ func (h handler) requireAdmin(next http.Handler) http.Handler {
 func (h handler) login(w http.ResponseWriter, r *http.Request) {
 	if h.auth.Sessions == nil {
 		writeError(w, http.StatusServiceUnavailable, "sessions unavailable")
+		return
+	}
+	if r.Method == http.MethodGet {
+		current, ok := h.auth.Sessions.Validate(r)
+		if !ok || current.Kind != "admin" {
+			writeError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"csrf_token": current.CSRFToken, "username": current.Subject})
 		return
 	}
 	var req struct {

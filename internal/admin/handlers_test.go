@@ -119,6 +119,40 @@ func TestAdminSessionLoginAndCSRF(t *testing.T) {
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("session request status = %d, want %d, body %s", rec.Code, http.StatusCreated, rec.Body.String())
 	}
+
+	current := httptest.NewRequest(http.MethodGet, "/api/v1/session", nil)
+	current.Header.Set("User-Agent", "Browser A")
+	current.Header.Set("Accept-Language", "en-US")
+	current.AddCookie(cookie)
+	currentRec := httptest.NewRecorder()
+	handler.ServeHTTP(currentRec, current)
+	if currentRec.Code != http.StatusOK {
+		t.Fatalf("current session status = %d, want %d, body %s", currentRec.Code, http.StatusOK, currentRec.Body.String())
+	}
+	var currentResponse struct {
+		CSRFToken string `json:"csrf_token"`
+		Username  string `json:"username"`
+	}
+	if err := json.NewDecoder(currentRec.Body).Decode(&currentResponse); err != nil {
+		t.Fatalf("decode current session: %v", err)
+	}
+	if currentResponse.CSRFToken != loginResponse.CSRFToken || currentResponse.Username != "admin" {
+		t.Fatalf("unexpected current session: %+v", currentResponse)
+	}
+}
+
+func TestAdminSessionProtectedAPIWithoutCookieDoesNotTriggerBasicPopup(t *testing.T) {
+	manager := session.NewManager(session.Options{CookieName: "admin_sid"})
+	handler := NewRouter(&fakeStore{}, AuthConfig{Username: "admin", Password: "secret", Sessions: manager})
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/tenants", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+	if got := rec.Header().Get("WWW-Authenticate"); got != "" {
+		t.Fatalf("WWW-Authenticate = %q, want empty for browser session auth", got)
+	}
 }
 
 func TestDiscoveryStaysPublicWhenAdminAuthConfigured(t *testing.T) {

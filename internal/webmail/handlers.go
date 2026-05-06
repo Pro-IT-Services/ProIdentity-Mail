@@ -425,6 +425,10 @@ func (h handler) authorized(w http.ResponseWriter, r *http.Request) (string, boo
 			if session, ok := h.sessions.Validate(r); ok && session.Kind == "webmail" {
 				return session.Subject, true
 			}
+			if _, _, hasBasic := r.BasicAuth(); !hasBasic {
+				writeSessionUnauthorized(w)
+				return "", false
+			}
 		} else if _, _, hasBasic := r.BasicAuth(); !hasBasic {
 			session, ok := h.sessions.ValidateUnsafe(r)
 			if !ok || session.Kind != "webmail" {
@@ -454,6 +458,13 @@ func (h handler) session(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch r.Method {
+	case http.MethodGet:
+		current, ok := h.sessions.Validate(r)
+		if !ok || current.Kind != "webmail" {
+			writeSessionUnauthorized(w)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"csrf_token": current.CSRFToken, "email": current.Subject})
 	case http.MethodPost:
 		var req struct {
 			Email    string `json:"email"`
@@ -491,7 +502,7 @@ func (h handler) session(w http.ResponseWriter, r *http.Request) {
 		h.sessions.Clear(w, r)
 		w.WriteHeader(http.StatusNoContent)
 	default:
-		w.Header().Set("Allow", "POST, DELETE")
+		w.Header().Set("Allow", "GET, POST, DELETE")
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
 }
@@ -511,6 +522,10 @@ func loginKey(subject string, r *http.Request) string {
 func writeUnauthorized(w http.ResponseWriter) {
 	w.Header().Set("WWW-Authenticate", `Basic realm="ProIdentity Webmail", charset="UTF-8"`)
 	http.Error(w, "unauthorized", http.StatusUnauthorized)
+}
+
+func writeSessionUnauthorized(w http.ResponseWriter) {
+	writeError(w, http.StatusUnauthorized, "unauthorized")
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {

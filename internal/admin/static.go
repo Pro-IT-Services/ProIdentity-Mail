@@ -582,6 +582,17 @@ const adminIndexHTML = `<!doctype html>
       render();
       showStatus("Loaded live platform data");
     }
+    async function bootstrapSession() {
+      const response = await fetch("/api/v1/session", {credentials: "same-origin"});
+      if (!response.ok) {
+        document.querySelector("#login-panel").classList.remove("hidden");
+        return;
+      }
+      const body = await response.json();
+      state.csrf = body.csrf_token || "";
+      document.querySelector("#login-panel").classList.add("hidden");
+      await refresh();
+    }
     function setView(view) {
       state.view = view;
       document.querySelectorAll(".nav-item[data-view]").forEach(item => item.classList.toggle("active", item.dataset.view === view));
@@ -674,7 +685,7 @@ const adminIndexHTML = `<!doctype html>
       await refresh();
     });
     searchEl.addEventListener("input", render);
-    refresh().catch(error => showStatus(error.message, true));
+    bootstrapSession().catch(error => showStatus(error.message, true));
   </script>
 </body>
 </html>

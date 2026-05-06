@@ -86,6 +86,7 @@ func (l *LoginLimiter) Success(key string) {
 type Session struct {
 	Subject         string
 	Kind            string
+	CSRFToken       string
 	csrfHash        string
 	fingerprintHash string
 	expiresAt       time.Time
@@ -126,6 +127,7 @@ func (m *Manager) Create(r *http.Request, subject, kind string) (Created, error)
 	session := Session{
 		Subject:         subject,
 		Kind:            kind,
+		CSRFToken:       csrf,
 		csrfHash:        hash(csrf),
 		fingerprintHash: browserFingerprint(r),
 		expiresAt:       now.Add(m.ttl),

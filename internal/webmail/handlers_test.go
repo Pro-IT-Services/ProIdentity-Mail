@@ -159,6 +159,40 @@ func TestWebmailSessionLoginAndCSRF(t *testing.T) {
 	if store.sent.From != "marko@example.com" {
 		t.Fatalf("from = %q, want session subject", store.sent.From)
 	}
+
+	current := httptest.NewRequest(http.MethodGet, "/api/v1/session", nil)
+	current.Header.Set("User-Agent", "Browser A")
+	current.Header.Set("Accept-Language", "en-US")
+	current.AddCookie(cookie)
+	currentRec := httptest.NewRecorder()
+	handler.ServeHTTP(currentRec, current)
+	if currentRec.Code != http.StatusOK {
+		t.Fatalf("current session status = %d, want %d, body %s", currentRec.Code, http.StatusOK, currentRec.Body.String())
+	}
+	var currentResponse struct {
+		CSRFToken string `json:"csrf_token"`
+		Email     string `json:"email"`
+	}
+	if err := json.NewDecoder(currentRec.Body).Decode(&currentResponse); err != nil {
+		t.Fatalf("decode current session: %v", err)
+	}
+	if currentResponse.CSRFToken != loginResponse.CSRFToken || currentResponse.Email != "marko@example.com" {
+		t.Fatalf("unexpected current session: %+v", currentResponse)
+	}
+}
+
+func TestWebmailSessionAPIWithoutCookieDoesNotTriggerBasicPopup(t *testing.T) {
+	manager := session.NewManager(session.Options{CookieName: "webmail_sid"})
+	handler := NewRouter(&fakeStore{}, manager)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/messages", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+	if got := rec.Header().Get("WWW-Authenticate"); got != "" {
+		t.Fatalf("WWW-Authenticate = %q, want empty for browser session auth", got)
+	}
 }
 
 func TestReportMessageEndpointRecordsSpamTraining(t *testing.T) {
