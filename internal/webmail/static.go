@@ -383,6 +383,209 @@ const webmailIndexHTML = `<!doctype html>
     .modal-head { display: flex; justify-content: space-between; align-items: center; }
     .modal-head h2 { margin: 0; font-size: 18px; }
     .modal .modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
+    .compose-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 34;
+      background: rgba(25, 28, 30, .18);
+      backdrop-filter: blur(8px);
+    }
+    .compose-backdrop.hidden { display: none; }
+    #compose-modal {
+      inset: 72px 72px 34px 300px;
+      width: auto;
+      min-width: min(920px, calc(100vw - 40px));
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 0;
+      gap: 0;
+      border-radius: 12px;
+      overflow: hidden;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+    }
+    #compose-modal.expanded { inset: 24px; max-width: none; }
+    .compose-head {
+      min-height: 74px;
+      padding: 0 24px;
+      border-bottom: 1px solid var(--outline);
+      background: var(--surface-soft);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .compose-title { display: flex; align-items: center; gap: 14px; }
+    .compose-title h2 { margin: 0; font-size: 20px; }
+    .compose-body { display: flex; min-height: 0; flex-direction: column; background: white; }
+    .compose-fields { padding: 18px 28px 8px; display: grid; gap: 0; }
+    .compose-row {
+      min-height: 48px;
+      border-bottom: 1px solid rgba(199,196,215,.58);
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .compose-row-label {
+      width: 54px;
+      color: var(--on-surface-variant, var(--muted));
+      font-weight: 700;
+      font-size: 14px;
+      letter-spacing: .02em;
+    }
+    .compose-row input {
+      border: 0;
+      outline: 0;
+      min-height: 38px;
+      background: transparent;
+      box-shadow: none;
+      flex: 1;
+      padding: 0;
+      font-size: 15px;
+    }
+    .compose-row input:focus { outline: 0; box-shadow: none; border-color: transparent; }
+    .recipient-wrap { flex: 1; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+    .recipient-chip {
+      min-height: 28px;
+      border-radius: 999px;
+      background: var(--secondary-soft);
+      color: #30384d;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 0 9px 0 12px;
+      font-size: 13px;
+      font-weight: 700;
+    }
+    .recipient-chip button {
+      border: 0;
+      background: transparent;
+      color: inherit;
+      width: 18px;
+      height: 18px;
+      padding: 0;
+      display: grid;
+      place-items: center;
+      cursor: pointer;
+    }
+    .recipient-chip .material-symbols-outlined { font-size: 16px; }
+    .compose-field-toggle {
+      border: 0;
+      background: transparent;
+      color: var(--primary);
+      font-weight: 700;
+      cursor: pointer;
+      padding: 4px 2px;
+    }
+    .compose-field-toggle:hover { text-decoration: underline; }
+    .compose-row.optional.hidden { display: none; }
+    .compose-toolbar {
+      min-height: 58px;
+      padding: 8px 28px;
+      background: var(--surface-soft);
+      border-bottom: 1px solid rgba(199,196,215,.52);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .compose-toolbar-group {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding-right: 10px;
+      border-right: 1px solid var(--outline);
+    }
+    .compose-toolbar-group:last-child { border-right: 0; padding-right: 0; }
+    .compose-editor-shell { flex: 1; min-height: 0; overflow: auto; padding: 24px 30px; }
+    #compose-editor {
+      min-height: 100%;
+      max-height: none;
+      border: 0;
+      border-radius: 0;
+      padding: 0;
+      box-shadow: none;
+      color: var(--ink);
+      font-size: 17px;
+      line-height: 1.65;
+      white-space: pre-wrap;
+    }
+    #compose-editor:focus { border-color: transparent; box-shadow: none; }
+    #compose-editor:empty:before {
+      content: attr(data-placeholder);
+      color: #8b8da0;
+      pointer-events: none;
+    }
+    .compose-attachments {
+      padding: 14px 28px;
+      border-top: 1px solid var(--outline);
+      background: var(--surface-soft);
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .attachment-chip {
+      min-height: 54px;
+      border: 1px solid var(--outline);
+      border-radius: 8px;
+      background: white;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 9px 12px;
+      color: var(--muted);
+      font-weight: 700;
+    }
+    .attachment-chip.disabled {
+      border-style: dashed;
+      opacity: .78;
+    }
+    .compose-footer {
+      min-height: 78px;
+      padding: 14px 28px;
+      border-top: 1px solid var(--outline);
+      background: var(--surface-soft);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+    }
+    .compose-footer-left, .compose-footer-right { display: flex; align-items: center; gap: 12px; }
+    .send-button {
+      min-height: 46px;
+      border: 0;
+      border-radius: 8px;
+      background: var(--primary);
+      color: white;
+      padding: 0 28px;
+      display: inline-flex;
+      align-items: center;
+      gap: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      box-shadow: 0 10px 22px rgba(70,72,212,.24);
+    }
+    .send-button:hover { background: #3032bd; }
+    .security-compose-badge {
+      position: fixed;
+      right: 26px;
+      bottom: 96px;
+      z-index: 36;
+      border: 1px solid var(--primary);
+      border-radius: 999px;
+      background: rgba(255,255,255,.92);
+      color: var(--primary);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 18px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+      box-shadow: 0 12px 24px rgba(15,23,42,.12);
+      pointer-events: none;
+    }
+    .security-compose-badge.hidden { display: none; }
+    .status-dot { width: 8px; height: 8px; border-radius: 999px; background: var(--primary); }
     textarea {
       width: 100%;
       min-height: 150px;
@@ -431,6 +634,12 @@ const webmailIndexHTML = `<!doctype html>
       aside, .list-pane, .reader, .rail { min-height: auto; }
       .rail { display: none; }
       .search { width: 44vw; }
+      #compose-modal { inset: 12px; min-width: 0; }
+      .compose-head, .compose-fields, .compose-toolbar, .compose-editor-shell, .compose-attachments, .compose-footer { padding-left: 16px; padding-right: 16px; }
+      .compose-footer { align-items: stretch; flex-direction: column; }
+      .compose-footer-left, .compose-footer-right { width: 100%; justify-content: space-between; }
+      .send-button { flex: 1; justify-content: center; }
+      .security-compose-badge { display: none; }
     }
   </style>
 </head>
@@ -512,25 +721,78 @@ const webmailIndexHTML = `<!doctype html>
     </form>
   </div>
 
+  <div class="compose-backdrop hidden" id="compose-backdrop"></div>
   <form class="modal hidden" id="compose-modal">
-    <div class="modal-head"><h2>Compose</h2><span class="material-symbols-outlined" id="close-compose">close</span></div>
-    <label>To<input name="to" autocomplete="email" required></label>
-    <label>CC<input name="cc" autocomplete="email"></label>
-    <label>BCC<input name="bcc" autocomplete="email"></label>
-    <label>Subject<input name="subject" required></label>
-    <label>Message
-      <div class="editor-toolbar">
-        <button class="tool-button" type="button" data-editor-command="bold" title="Bold"><span class="material-symbols-outlined">format_bold</span></button>
-        <button class="tool-button" type="button" data-editor-command="italic" title="Italic"><span class="material-symbols-outlined">format_italic</span></button>
-        <button class="tool-button" type="button" data-editor-command="insertUnorderedList" title="List"><span class="material-symbols-outlined">format_list_bulleted</span></button>
-        <button class="tool-button" type="button" data-editor-clear title="Clear formatting"><span class="material-symbols-outlined">format_clear</span></button>
+    <div class="compose-head">
+      <div class="compose-title"><span class="material-symbols-outlined" style="color:var(--primary)">edit_note</span><h2>New Message</h2></div>
+      <div class="compact-actions">
+        <button class="tool-button" type="button" id="expand-compose" title="Expand"><span class="material-symbols-outlined">open_in_full</span></button>
+        <button class="tool-button" type="button" id="close-compose" title="Close"><span class="material-symbols-outlined">close</span></button>
       </div>
-      <div class="editor" id="compose-editor" contenteditable="true"></div>
-      <input type="hidden" name="body">
-    </label>
-    <button class="primary-button" type="submit">Send Message</button>
-    <div class="error" id="compose-error"></div>
+    </div>
+    <div class="compose-body">
+      <div class="compose-fields">
+        <div class="compose-row">
+          <span class="compose-row-label">To</span>
+          <div class="recipient-wrap" id="to-chip-row">
+            <input name="to" autocomplete="email" placeholder="Add recipients...">
+          </div>
+          <button class="compose-field-toggle" type="button" data-show-compose-field="cc-row">Cc</button>
+          <button class="compose-field-toggle" type="button" data-show-compose-field="bcc-row">Bcc</button>
+        </div>
+        <div class="compose-row optional hidden" id="cc-row">
+          <span class="compose-row-label">Cc</span>
+          <input name="cc" autocomplete="email" placeholder="Add carbon copy recipients...">
+        </div>
+        <div class="compose-row optional hidden" id="bcc-row">
+          <span class="compose-row-label">Bcc</span>
+          <input name="bcc" autocomplete="email" placeholder="Add blind copy recipients...">
+        </div>
+        <div class="compose-row">
+          <span class="compose-row-label">Subject</span>
+          <input name="subject" placeholder="Enter message subject" required>
+        </div>
+      </div>
+      <div class="compose-toolbar">
+        <div class="compose-toolbar-group">
+          <button class="tool-button" type="button" data-editor-command="bold" title="Bold"><span class="material-symbols-outlined">format_bold</span></button>
+          <button class="tool-button" type="button" data-editor-command="italic" title="Italic"><span class="material-symbols-outlined">format_italic</span></button>
+          <button class="tool-button" type="button" data-editor-command="underline" title="Underline"><span class="material-symbols-outlined">format_underlined</span></button>
+        </div>
+        <div class="compose-toolbar-group">
+          <button class="tool-button" type="button" data-editor-command="insertUnorderedList" title="Bullet list"><span class="material-symbols-outlined">format_list_bulleted</span></button>
+          <button class="tool-button" type="button" data-editor-command="insertOrderedList" title="Numbered list"><span class="material-symbols-outlined">format_list_numbered</span></button>
+        </div>
+        <div class="compose-toolbar-group">
+          <button class="tool-button" type="button" data-editor-link title="Link"><span class="material-symbols-outlined">link</span></button>
+          <button class="tool-button" type="button" data-editor-image title="Image URL"><span class="material-symbols-outlined">image</span></button>
+        </div>
+        <div class="compose-toolbar-group">
+          <button class="tool-button" type="button" data-editor-clear title="Clear formatting"><span class="material-symbols-outlined">format_clear</span></button>
+        </div>
+        <div style="flex:1"></div>
+        <button class="tool-button" type="button" title="More options"><span class="material-symbols-outlined">more_vert</span></button>
+      </div>
+      <div class="compose-editor-shell">
+        <div class="editor" id="compose-editor" contenteditable="true" spellcheck="true" data-placeholder="Write your message..."></div>
+        <input type="hidden" name="body">
+      </div>
+      <div class="compose-attachments">
+        <button class="attachment-chip disabled" type="button" disabled title="Attachment sending is not implemented yet"><span class="material-symbols-outlined">add_circle</span><span>Add file<br><span class="muted">coming soon</span></span></button>
+      </div>
+    </div>
+    <div class="compose-footer">
+      <div class="compose-footer-left">
+        <button class="send-button" type="submit"><span>Send Message</span><span class="material-symbols-outlined">send</span></button>
+        <button class="secondary-button" type="button" id="save-draft"><span class="material-symbols-outlined">save</span>Save Draft</button>
+      </div>
+      <div class="compose-footer-right">
+        <div class="error" id="compose-error"></div>
+        <button class="danger-button" type="button" id="discard-compose" title="Discard"><span class="material-symbols-outlined">delete</span></button>
+      </div>
+    </div>
   </form>
+  <div class="security-compose-badge hidden" id="compose-security-badge"><span class="status-dot"></span><span>Encrypted Session</span><span class="material-symbols-outlined">verified_user</span></div>
 
   <form class="modal hidden" id="folder-modal">
     <div class="modal-head"><h2>New folder</h2><button class="tool-button" type="button" id="close-folder" title="Close"><span class="material-symbols-outlined">close</span></button></div>
@@ -853,17 +1115,74 @@ const webmailIndexHTML = `<!doctype html>
       const sender = emailOnly(item.from || state.selected.from);
       const originalBody = String(item.body || state.selected.preview || "");
       form.reset();
+      clearRecipientChips();
       if (mode === "forward") {
         form.elements.to.value = "";
         form.elements.subject.value = prefixedSubject("Fwd: ", item.subject || state.selected.subject || "");
         document.querySelector("#compose-editor").innerText = "\n\nForwarded message\nFrom: " + (item.from || state.selected.from || "") + "\nTo: " + (item.to || state.selected.to || state.email || "") + "\n\n" + originalBody;
       } else {
-        form.elements.to.value = sender;
+        addRecipientChip(sender);
         form.elements.subject.value = prefixedSubject("Re: ", item.subject || state.selected.subject || "");
         document.querySelector("#compose-editor").innerText = "\n\nOn " + messageTime(item) + ", " + (item.from || sender) + " wrote:\n" + originalBody.split("\n").map(line => "> " + line).join("\n");
       }
       document.querySelector("#compose-error").textContent = "";
-      form.classList.remove("hidden");
+      openCompose();
+    }
+    function openCompose() {
+      document.querySelector("#compose-backdrop").classList.remove("hidden");
+      document.querySelector("#compose-modal").classList.remove("hidden");
+      document.querySelector("#compose-security-badge").classList.remove("hidden");
+      setTimeout(() => document.querySelector("#compose-editor").focus(), 0);
+    }
+    function closeCompose() {
+      document.querySelector("#compose-backdrop").classList.add("hidden");
+      document.querySelector("#compose-modal").classList.add("hidden");
+      document.querySelector("#compose-security-badge").classList.add("hidden");
+    }
+    function clearRecipientChips() {
+      document.querySelectorAll(".recipient-chip").forEach(item => item.remove());
+    }
+    function addRecipientChip(email) {
+      const value = String(email || "").trim();
+      if (!value) return;
+      const input = document.querySelector("#to-chip-row input[name='to']");
+      const chip = document.createElement("span");
+      chip.className = "recipient-chip";
+      chip.dataset.recipient = value;
+      chip.innerHTML = "<span>" + esc(value) + "</span><button type=\"button\" title=\"Remove\"><span class=\"material-symbols-outlined\">cancel</span></button>";
+      chip.querySelector("button").addEventListener("click", () => chip.remove());
+      input.before(chip);
+      input.value = "";
+    }
+    function normalizeRecipients() {
+      const input = document.querySelector("#to-chip-row input[name='to']");
+      String(input.value || "").split(",").map(item => item.trim()).filter(Boolean).forEach(addRecipientChip);
+      return [...document.querySelectorAll(".recipient-chip")].map(item => item.dataset.recipient);
+    }
+    function loadDraft() {
+      try {
+        const draft = JSON.parse(localStorage.getItem("proidentity-compose-draft") || "{}");
+        const form = document.querySelector("#compose-modal");
+        if (draft.to) String(draft.to).split(",").map(item => item.trim()).filter(Boolean).forEach(addRecipientChip);
+        form.elements.cc.value = draft.cc || "";
+        form.elements.bcc.value = draft.bcc || "";
+        form.elements.subject.value = draft.subject || "";
+        document.querySelector("#compose-editor").innerText = draft.body || "";
+      } catch {}
+    }
+    function saveDraft() {
+      const form = document.querySelector("#compose-modal");
+      normalizeRecipients();
+      const draft = {
+        to: [...document.querySelectorAll(".recipient-chip")].map(item => item.dataset.recipient).join(", "),
+        cc: form.elements.cc.value,
+        bcc: form.elements.bcc.value,
+        subject: form.elements.subject.value,
+        body: document.querySelector("#compose-editor").innerText
+      };
+      localStorage.setItem("proidentity-compose-draft", JSON.stringify(draft));
+      document.querySelector("#compose-error").className = "error info";
+      document.querySelector("#compose-error").textContent = "Draft saved in this browser";
     }
     function filteredMessages() {
       const q = document.querySelector("#search").value.trim().toLowerCase();
@@ -927,11 +1246,30 @@ const webmailIndexHTML = `<!doctype html>
     document.querySelector(".compose").addEventListener("click", () => {
       const form = document.querySelector("#compose-modal");
       form.reset();
+      clearRecipientChips();
       document.querySelector("#compose-editor").innerHTML = "";
       document.querySelector("#compose-error").textContent = "";
-      form.classList.remove("hidden");
+      loadDraft();
+      openCompose();
     });
-    document.querySelector("#close-compose").addEventListener("click", () => document.querySelector("#compose-modal").classList.add("hidden"));
+    document.querySelector("#close-compose").addEventListener("click", closeCompose);
+    document.querySelector("#compose-backdrop").addEventListener("click", closeCompose);
+    document.querySelector("#discard-compose").addEventListener("click", () => {
+      document.querySelector("#compose-modal").reset();
+      clearRecipientChips();
+      document.querySelector("#compose-editor").innerHTML = "";
+      localStorage.removeItem("proidentity-compose-draft");
+      closeCompose();
+    });
+    document.querySelector("#save-draft").addEventListener("click", saveDraft);
+    document.querySelector("#expand-compose").addEventListener("click", () => document.querySelector("#compose-modal").classList.toggle("expanded"));
+    document.querySelectorAll("[data-show-compose-field]").forEach(button => button.addEventListener("click", () => document.querySelector("#" + button.dataset.showComposeField).classList.remove("hidden")));
+    document.querySelector("#to-chip-row input[name='to']").addEventListener("keydown", event => {
+      if (event.key === "Enter" || event.key === ",") {
+        event.preventDefault();
+        addRecipientChip(event.currentTarget.value.replace(",", ""));
+      }
+    });
     document.querySelector("#close-contact").addEventListener("click", () => document.querySelector("#contact-modal").classList.add("hidden"));
     document.querySelector("#cancel-contact").addEventListener("click", () => document.querySelector("#contact-modal").classList.add("hidden"));
     document.querySelector("#contact-modal").addEventListener("submit", saveContact);
@@ -956,18 +1294,25 @@ const webmailIndexHTML = `<!doctype html>
       event.preventDefault();
       const form = event.currentTarget;
       document.querySelector("#compose-error").textContent = "";
+      document.querySelector("#compose-error").className = "error";
       form.elements.body.value = document.querySelector("#compose-editor").innerText.trim();
       const data = new FormData(event.currentTarget);
-      const recipients = [data.get("to"), data.get("cc"), data.get("bcc")].flatMap(value => String(value || "").split(",").map(item => item.trim()).filter(Boolean));
+      const recipients = [normalizeRecipients().join(","), data.get("cc"), data.get("bcc")].flatMap(value => String(value || "").split(",").map(item => item.trim()).filter(Boolean));
       const payload = {to: recipients, subject: String(data.get("subject") || ""), body: String(data.get("body") || "")};
+      if (!payload.to.length) {
+        document.querySelector("#compose-error").textContent = "Add at least one recipient";
+        return;
+      }
       const response = await fetch("/api/v1/send", {method: "POST", credentials: "same-origin", cache: "no-store", headers: {"Content-Type": "application/json", "X-CSRF-Token": state.csrf}, body: JSON.stringify(payload)});
       if (!response.ok) {
         document.querySelector("#compose-error").textContent = "Send failed";
         return;
       }
       form.reset();
+      clearRecipientChips();
+      localStorage.removeItem("proidentity-compose-draft");
       document.querySelector("#compose-editor").innerHTML = "";
-      document.querySelector("#compose-modal").classList.add("hidden");
+      closeCompose();
       await loadMessages();
     });
     document.querySelector("#refresh").addEventListener("click", () => loadMessages().catch(error => document.querySelector("#error").textContent = error.message));
@@ -989,6 +1334,18 @@ const webmailIndexHTML = `<!doctype html>
       document.querySelector("#compose-editor").focus();
       document.execCommand(button.dataset.editorCommand, false, null);
     }));
+    document.querySelector("[data-editor-link]").addEventListener("click", () => {
+      const url = prompt("Link URL");
+      if (!url) return;
+      document.querySelector("#compose-editor").focus();
+      document.execCommand("createLink", false, url);
+    });
+    document.querySelector("[data-editor-image]").addEventListener("click", () => {
+      const url = prompt("Image URL");
+      if (!url) return;
+      document.querySelector("#compose-editor").focus();
+      document.execCommand("insertImage", false, url);
+    });
     document.querySelector("[data-editor-clear]").addEventListener("click", () => {
       document.querySelector("#compose-editor").focus();
       document.execCommand("removeFormat", false, null);
