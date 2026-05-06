@@ -61,8 +61,8 @@ func runRender(cfg app.Config) {
 	if err := os.MkdirAll(cfg.ConfigDir, 0750); err != nil {
 		log.Fatalf("create config dir: %v", err)
 	}
-	writeRendered(filepath.Join(cfg.ConfigDir, "postfix-main.cf"), must(render.RenderPostfixMain(render.PostfixMainData{Hostname: "mail.local"})))
-	writeRendered(filepath.Join(cfg.ConfigDir, "dovecot-sql.conf.ext"), must(render.RenderDovecotSQL(render.DovecotSQLData{Database: "proidentity_mail", User: "proidentity_mail", Password: "change-me"})))
+	writeRendered(filepath.Join(cfg.ConfigDir, "postfix-main.cf"), must(render.RenderPostfixMain(render.PostfixMainData{Hostname: cfg.MailHostname})))
+	writeRendered(filepath.Join(cfg.ConfigDir, "dovecot-sql.conf.ext"), must(render.RenderDovecotSQL(render.DovecotSQLData{Database: cfg.DBName, User: cfg.DBUser, Password: cfg.DBPassword})))
 	writeRendered(filepath.Join(cfg.ConfigDir, "rspamd-local.d-redis.conf"), must(render.RenderRspamdLocal()))
 	fmt.Printf("rendered configs to %s\n", cfg.ConfigDir)
 }
