@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -63,8 +64,30 @@ func TestMessageEndpointReturnsFullMessage(t *testing.T) {
 	}
 }
 
+func TestSendEndpointUsesAuthenticatedSender(t *testing.T) {
+	store := &fakeStore{valid: true}
+	handler := NewRouter(store)
+	body := `{"to":["marko@example.com"],"subject":"Hello","body":"Sent from webmail"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/send", strings.NewReader(body))
+	req.SetBasicAuth("marko@example.com", "secret123456")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want %d, body %s", rec.Code, http.StatusAccepted, rec.Body.String())
+	}
+	if store.sent.From != "marko@example.com" {
+		t.Fatalf("from = %q, want authenticated user", store.sent.From)
+	}
+	if store.sent.Subject != "Hello" || store.sent.Body != "Sent from webmail" {
+		t.Fatalf("unexpected sent message: %+v", store.sent)
+	}
+}
+
 type fakeStore struct {
 	valid bool
+	sent  OutboundMessage
 }
 
 func (s *fakeStore) VerifyUserPassword(ctx context.Context, email, password string) (bool, error) {
@@ -77,4 +100,9 @@ func (s *fakeStore) ListRecentMessages(ctx context.Context, email string, limit 
 
 func (s *fakeStore) GetMessage(ctx context.Context, email, id string) (MessageDetail, error) {
 	return MessageDetail{ID: id, From: "sender@example.net", To: email, Subject: "Welcome", Body: "Full body"}, nil
+}
+
+func (s *fakeStore) SendMessage(ctx context.Context, message OutboundMessage) error {
+	s.sent = message
+	return nil
 }

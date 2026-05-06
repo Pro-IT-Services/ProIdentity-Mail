@@ -37,6 +37,7 @@ func (s SQLAuthStore) VerifyUserPassword(ctx context.Context, email, password st
 type CompositeStore struct {
 	Auth    SQLAuthStore
 	Mailbox MaildirStore
+	Sender  SMTPSender
 }
 
 func (s CompositeStore) VerifyUserPassword(ctx context.Context, email, password string) (bool, error) {
@@ -49,4 +50,8 @@ func (s CompositeStore) ListRecentMessages(ctx context.Context, email string, li
 
 func (s CompositeStore) GetMessage(ctx context.Context, email, id string) (MessageDetail, error) {
 	return s.Mailbox.GetMessage(ctx, email, id)
+}
+
+func (s CompositeStore) SendMessage(ctx context.Context, message OutboundMessage) error {
+	return s.Sender.Send(ctx, message)
 }

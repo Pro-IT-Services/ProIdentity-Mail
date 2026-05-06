@@ -277,6 +277,31 @@ const webmailIndexHTML = `<!doctype html>
       padding: 24px;
     }
     .login.hidden { display: none; }
+    .modal {
+      position: fixed;
+      inset: auto 28px 28px auto;
+      width: min(520px, calc(100vw - 56px));
+      z-index: 35;
+      border: 1px solid var(--outline);
+      border-radius: 12px;
+      background: white;
+      box-shadow: 0 20px 48px rgba(15,23,42,.18);
+      display: grid;
+      gap: 12px;
+      padding: 18px;
+    }
+    .modal.hidden { display: none; }
+    .modal-head { display: flex; justify-content: space-between; align-items: center; }
+    .modal-head h2 { margin: 0; font-size: 18px; }
+    textarea {
+      width: 100%;
+      min-height: 150px;
+      resize: vertical;
+      border: 1px solid var(--outline);
+      border-radius: 8px;
+      padding: 10px 12px;
+      font: inherit;
+    }
     .login-card {
       width: min(460px, 100%);
       border: 1px solid var(--outline);
@@ -396,6 +421,15 @@ const webmailIndexHTML = `<!doctype html>
     </form>
   </div>
 
+  <form class="modal hidden" id="compose-modal">
+    <div class="modal-head"><h2>Compose</h2><span class="material-symbols-outlined" id="close-compose">close</span></div>
+    <label>To<input name="to" autocomplete="email" required></label>
+    <label>Subject<input name="subject" required></label>
+    <label>Message<textarea name="body" required></textarea></label>
+    <button class="primary-button" type="submit">Send Message</button>
+    <div class="error" id="compose-error"></div>
+  </form>
+
   <script>
     const state = { token: "", email: "", messages: [], selected: null };
     const esc = value => String(value ?? "").replace(/[&<>"']/g, char => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[char]));
@@ -452,6 +486,22 @@ const webmailIndexHTML = `<!doctype html>
       } catch (error) {
         document.querySelector("#error").textContent = error.message;
       }
+    });
+    document.querySelector(".compose").addEventListener("click", () => document.querySelector("#compose-modal").classList.remove("hidden"));
+    document.querySelector("#close-compose").addEventListener("click", () => document.querySelector("#compose-modal").classList.add("hidden"));
+    document.querySelector("#compose-modal").addEventListener("submit", async event => {
+      event.preventDefault();
+      const data = new FormData(event.currentTarget);
+      document.querySelector("#compose-error").textContent = "";
+      const payload = {to: String(data.get("to") || "").split(",").map(item => item.trim()).filter(Boolean), subject: String(data.get("subject") || ""), body: String(data.get("body") || "")};
+      const response = await fetch("/api/v1/send", {method: "POST", headers: {"Content-Type": "application/json", Authorization: "Basic " + state.token}, body: JSON.stringify(payload)});
+      if (!response.ok) {
+        document.querySelector("#compose-error").textContent = "Send failed";
+        return;
+      }
+      event.currentTarget.reset();
+      document.querySelector("#compose-modal").classList.add("hidden");
+      await loadMessages();
     });
     document.querySelector("#refresh").addEventListener("click", () => loadMessages().catch(error => document.querySelector("#error").textContent = error.message));
     document.querySelector("#search").addEventListener("input", render);

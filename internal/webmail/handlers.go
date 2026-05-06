@@ -3,6 +3,7 @@ package webmail
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -12,6 +13,14 @@ type Store interface {
 	VerifyUserPassword(ctx context.Context, email, password string) (bool, error)
 	ListRecentMessages(ctx context.Context, email string, limit int) ([]MessageSummary, error)
 	GetMessage(ctx context.Context, email, id string) (MessageDetail, error)
+	SendMessage(ctx context.Context, message OutboundMessage) error
+}
+
+type OutboundMessage struct {
+	From    string   `json:"from"`
+	To      []string `json:"to"`
+	Subject string   `json:"subject"`
+	Body    string   `json:"body"`
 }
 
 type handler struct {
@@ -24,6 +33,7 @@ func NewRouter(store Store) http.Handler {
 	mux.HandleFunc("/healthz", health)
 	mux.HandleFunc("/api/v1/messages", h.messages)
 	mux.HandleFunc("/api/v1/messages/", h.message)
+	mux.HandleFunc("/api/v1/send", h.send)
 	mux.HandleFunc("/", index)
 	return mux
 }
@@ -71,6 +81,38 @@ func (h handler) message(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, message)
+}
+
+func (h handler) send(w http.ResponseWriter, r *http.Request) {
+	email, ok := h.authorized(w, r)
+	if !ok {
+		return
+	}
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		To      []string `json:"to"`
+		Subject string   `json:"subject"`
+		Body    string   `json:"body"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	if len(req.To) == 0 || strings.TrimSpace(req.Subject) == "" {
+		writeError(w, http.StatusBadRequest, "recipient and subject are required")
+		return
+	}
+	message := OutboundMessage{From: email, To: req.To, Subject: req.Subject, Body: req.Body}
+	if err := h.store.SendMessage(r.Context(), message); err != nil {
+		log.Printf("webmail send failed from=%q to=%q: %v", message.From, message.To, err)
+		writeError(w, http.StatusInternalServerError, "send message failed")
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "queued"})
 }
 
 func (h handler) authorized(w http.ResponseWriter, r *http.Request) (string, bool) {

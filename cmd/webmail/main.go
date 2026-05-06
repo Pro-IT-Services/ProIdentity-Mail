@@ -24,6 +24,7 @@ func main() {
 	store := webmail.CompositeStore{
 		Auth:    webmail.NewSQLAuthStore(conn),
 		Mailbox: webmail.MaildirStore{Root: "/var/vmail"},
+		Sender:  webmail.SMTPSender{Addr: "127.0.0.1:25"},
 	}
 	server := http.Server{
 		Addr:              cfg.WebmailAddr,
