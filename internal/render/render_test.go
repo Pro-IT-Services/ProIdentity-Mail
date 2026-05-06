@@ -198,3 +198,57 @@ func TestRenderRspamdActionsAndHeaders(t *testing.T) {
 		t.Fatalf("milter headers config missing useful headers: %s", string(headers))
 	}
 }
+
+func TestRenderRspamdTenantSettingsAppliesPerDomainActions(t *testing.T) {
+	out, err := RenderRspamdTenantSettings(RspamdTenantPolicyData{
+		Domains: []RspamdTenantPolicyDomain{
+			{Domain: "example.com", SpamAction: "quarantine"},
+			{Domain: "example.net", SpamAction: "reject"},
+			{Domain: "example.org", SpamAction: "mark"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("RenderRspamdTenantSettings returned error: %v", err)
+	}
+	text := string(out)
+	for _, want := range []string{
+		`proidentity_example_com {`,
+		`rcpt = "@example.com";`,
+		`"quarantine" = 6.0;`,
+		`reject = 999.0;`,
+		`proidentity_example_net {`,
+		`reject = 6.0;`,
+		`proidentity_example_org {`,
+		`"add header" = 6.0;`,
+		`subject = "[SPAM] %s";`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("tenant settings missing %q: %s", want, text)
+		}
+	}
+}
+
+func TestRenderRspamdForceActionsAppliesMalwarePolicy(t *testing.T) {
+	out, err := RenderRspamdForceActions(RspamdTenantPolicyData{
+		Domains: []RspamdTenantPolicyDomain{
+			{Domain: "example.com", MalwareAction: "quarantine"},
+			{Domain: "example.net", MalwareAction: "reject"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("RenderRspamdForceActions returned error: %v", err)
+	}
+	text := string(out)
+	for _, want := range []string{
+		`PROIDENTITY_MALWARE_EXAMPLE_COM {`,
+		`action = "quarantine";`,
+		`expression = "CLAM_VIRUS & RCPT_DOMAIN_EXAMPLE_COM";`,
+		`PROIDENTITY_MALWARE_EXAMPLE_NET {`,
+		`action = "reject";`,
+		`message = "Rejected due to malware policy";`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("force actions missing %q: %s", want, text)
+		}
+	}
+}

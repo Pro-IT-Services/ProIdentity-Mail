@@ -11,6 +11,7 @@ import (
 	"log"
 	"net/textproto"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -25,7 +26,7 @@ import (
 func main() {
 	flag.Parse()
 	if flag.NArg() == 0 {
-		fmt.Fprintln(os.Stderr, "usage: mailctl migrate|render|health|seed-dev|rotate-admin-password|quarantine-message|release-quarantine")
+		fmt.Fprintln(os.Stderr, "usage: mailctl migrate|render|health|seed-dev|rotate-admin-password|quarantine-message|release-quarantine|sync-rspamd-policy")
 		os.Exit(2)
 	}
 
@@ -49,6 +50,8 @@ func main() {
 		runQuarantineMessage(cfg, flag.Args()[1:])
 	case "release-quarantine":
 		runReleaseQuarantine(cfg, flag.Args()[1:])
+	case "sync-rspamd-policy":
+		runSyncRspamdPolicy(cfg, flag.Args()[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command %q\n", flag.Arg(0))
 		os.Exit(2)
@@ -144,6 +147,12 @@ func runRender(cfg app.Config) {
 	writeRendered(filepath.Join(cfg.ConfigDir, "rspamd-local.d-dkim_signing.conf"), must(render.RenderRspamdDKIMSigning(render.RspamdDKIMSigningData{Domains: dkimDomains})))
 	writeRendered(filepath.Join(cfg.ConfigDir, "rspamd-local.d-actions.conf"), must(render.RenderRspamdActions()))
 	writeRendered(filepath.Join(cfg.ConfigDir, "rspamd-local.d-milter_headers.conf"), must(render.RenderRspamdMilterHeaders()))
+	policies, err := loadRspamdTenantPolicies(ctx, conn)
+	if err != nil {
+		log.Fatalf("load rspamd tenant policies: %v", err)
+	}
+	writeRendered(filepath.Join(cfg.ConfigDir, "rspamd-local.d-settings.conf"), must(render.RenderRspamdTenantSettings(render.RspamdTenantPolicyData{Domains: policies})))
+	writeRendered(filepath.Join(cfg.ConfigDir, "rspamd-local.d-force_actions.conf"), must(render.RenderRspamdForceActions(render.RspamdTenantPolicyData{Domains: policies})))
 	fmt.Printf("rendered configs to %s\n", cfg.ConfigDir)
 }
 
@@ -171,6 +180,31 @@ func loadDKIMSigningDomains(ctx context.Context, conn interface {
 		domains = append(domains, item)
 	}
 	return domains, rows.Err()
+}
+
+func loadRspamdTenantPolicies(ctx context.Context, conn interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+}) ([]render.RspamdTenantPolicyDomain, error) {
+	rows, err := conn.QueryContext(ctx, `
+		SELECT d.name, p.spam_action, p.malware_action
+		FROM domains d
+		JOIN tenant_policies p ON p.tenant_id = d.tenant_id
+		WHERE d.status IN ('pending', 'active')
+		ORDER BY d.name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var policies []render.RspamdTenantPolicyDomain
+	for rows.Next() {
+		var policy render.RspamdTenantPolicyDomain
+		if err := rows.Scan(&policy.Domain, &policy.SpamAction, &policy.MalwareAction); err != nil {
+			return nil, err
+		}
+		policies = append(policies, policy)
+	}
+	return policies, rows.Err()
 }
 
 func runHealth() {
@@ -297,6 +331,39 @@ func runReleaseQuarantine(cfg app.Config, args []string) {
 	fmt.Printf("released id=%d status=%s\n", event.ID, event.Status)
 }
 
+func runSyncRspamdPolicy(cfg app.Config, args []string) {
+	flags := flag.NewFlagSet("sync-rspamd-policy", flag.ExitOnError)
+	targetDir := flags.String("target-dir", "/etc/rspamd/local.d", "rspamd local.d directory")
+	reload := flags.Bool("reload", false, "reload rspamd after writing policy files")
+	if err := flags.Parse(args); err != nil {
+		log.Fatalf("parse sync-rspamd-policy flags: %v", err)
+	}
+	if cfg.DBDSN == "" {
+		log.Fatal("PROIDENTITY_DB_DSN is required")
+	}
+	ctx := context.Background()
+	conn, err := db.Open(ctx, cfg.DBDSN)
+	if err != nil {
+		log.Fatalf("open db: %v", err)
+	}
+	defer conn.Close()
+	policies, err := loadRspamdTenantPolicies(ctx, conn)
+	if err != nil {
+		log.Fatalf("load rspamd tenant policies: %v", err)
+	}
+	if err := os.MkdirAll(*targetDir, 0750); err != nil {
+		log.Fatalf("create rspamd policy dir: %v", err)
+	}
+	writeRenderedAtomic(filepath.Join(*targetDir, "settings.conf"), must(render.RenderRspamdTenantSettings(render.RspamdTenantPolicyData{Domains: policies})))
+	writeRenderedAtomic(filepath.Join(*targetDir, "force_actions.conf"), must(render.RenderRspamdForceActions(render.RspamdTenantPolicyData{Domains: policies})))
+	if *reload {
+		if err := reloadRspamd(); err != nil {
+			log.Fatalf("reload rspamd: %v", err)
+		}
+	}
+	fmt.Printf("synced rspamd policy domains=%d target=%s\n", len(policies), *targetDir)
+}
+
 func must(data []byte, err error) []byte {
 	if err != nil {
 		log.Fatal(err)
@@ -308,4 +375,26 @@ func writeRendered(path string, data []byte) {
 	if err := os.WriteFile(path, data, 0640); err != nil {
 		log.Fatalf("write %s: %v", path, err)
 	}
+}
+
+func writeRenderedAtomic(path string, data []byte) {
+	temp := path + ".tmp"
+	if err := os.WriteFile(temp, data, 0640); err != nil {
+		log.Fatalf("write %s: %v", temp, err)
+	}
+	if err := os.Rename(temp, path); err != nil {
+		log.Fatalf("rename %s: %v", path, err)
+	}
+}
+
+func reloadRspamd() error {
+	if path, err := exec.LookPath("systemctl"); err == nil {
+		cmd := exec.Command(path, "reload-or-restart", "rspamd")
+		return cmd.Run()
+	}
+	if path, err := exec.LookPath("rspamadm"); err == nil {
+		cmd := exec.Command(path, "control", "reload")
+		return cmd.Run()
+	}
+	return errors.New("no rspamd reload command available")
 }

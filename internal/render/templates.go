@@ -175,3 +175,46 @@ const rspamdMilterHeadersTemplate = `
 use = ["x-spamd-result", "x-rspamd-server", "x-rspamd-queue-id", "authentication-results"];
 authenticated_headers = ["authentication-results"];
 `
+
+const rspamdTenantSettingsTemplate = `
+{{- range .Domains }}
+{{ .RuleName }} {
+  priority = high;
+  rcpt = "@{{ .Domain }}";
+  symbols [
+    "{{ .SymbolName }}"
+  ]
+  apply {
+    actions {
+{{- if eq .SpamAction "reject" }}
+      reject = 6.0;
+      "add header" = null;
+      "quarantine" = null;
+{{- else if eq .SpamAction "quarantine" }}
+      "quarantine" = 6.0;
+      reject = 999.0;
+      "add header" = null;
+{{- else }}
+      "add header" = 6.0;
+      reject = 999.0;
+      "quarantine" = null;
+{{- end }}
+    }
+    subject = "[SPAM] %s";
+  }
+}
+{{ end -}}
+`
+
+const rspamdForceActionsTemplate = `
+rules {
+{{- range .Domains }}
+  {{ .MalwareRuleName }} {
+    action = "{{ .MalwareAction }}";
+    expression = "CLAM_VIRUS & {{ .SymbolName }}";
+    message = "Rejected due to malware policy";
+    honor_action = ["reject"];
+  }
+{{ end -}}
+}
+`

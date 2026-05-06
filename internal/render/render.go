@@ -2,6 +2,7 @@ package render
 
 import (
 	"bytes"
+	"strings"
 	"text/template"
 )
 
@@ -29,6 +30,25 @@ type DKIMSigningDomain struct {
 
 type RspamdDKIMSigningData struct {
 	Domains []DKIMSigningDomain
+}
+
+type RspamdTenantPolicyDomain struct {
+	Domain        string
+	SpamAction    string
+	MalwareAction string
+}
+
+type RspamdTenantPolicyData struct {
+	Domains []RspamdTenantPolicyDomain
+}
+
+type rspamdTenantPolicyTemplateDomain struct {
+	Domain          string
+	RuleName        string
+	MalwareRuleName string
+	SymbolName      string
+	SpamAction      string
+	MalwareAction   string
 }
 
 type postfixMySQLTemplateData struct {
@@ -86,6 +106,14 @@ func RenderRspamdMilterHeaders() ([]byte, error) {
 	return []byte(bytes.TrimLeft([]byte(rspamdMilterHeadersTemplate), "\n")), nil
 }
 
+func RenderRspamdTenantSettings(data RspamdTenantPolicyData) ([]byte, error) {
+	return renderTemplate("rspamd-tenant-settings", rspamdTenantSettingsTemplate, map[string]any{"Domains": rspamdPolicyDomains(data)})
+}
+
+func RenderRspamdForceActions(data RspamdTenantPolicyData) ([]byte, error) {
+	return renderTemplate("rspamd-force-actions", rspamdForceActionsTemplate, map[string]any{"Domains": rspamdPolicyDomains(data)})
+}
+
 func renderPostfixMySQL(data PostfixMySQLData, query string) ([]byte, error) {
 	return renderTemplate("postfix-mysql", postfixMySQLTemplate, postfixMySQLTemplateData{
 		Database: data.Database,
@@ -105,4 +133,43 @@ func renderTemplate(name, text string, data any) ([]byte, error) {
 		return nil, err
 	}
 	return bytes.TrimLeft(buf.Bytes(), "\n"), nil
+}
+
+func rspamdPolicyDomains(data RspamdTenantPolicyData) []rspamdTenantPolicyTemplateDomain {
+	out := make([]rspamdTenantPolicyTemplateDomain, 0, len(data.Domains))
+	for _, domain := range data.Domains {
+		name := rspamdSafeName(domain.Domain)
+		out = append(out, rspamdTenantPolicyTemplateDomain{
+			Domain:          strings.ToLower(strings.TrimSpace(domain.Domain)),
+			RuleName:        "proidentity_" + name,
+			MalwareRuleName: "PROIDENTITY_MALWARE_" + strings.ToUpper(name),
+			SymbolName:      "RCPT_DOMAIN_" + strings.ToUpper(name),
+			SpamAction:      actionOrDefault(domain.SpamAction, "mark"),
+			MalwareAction:   actionOrDefault(domain.MalwareAction, "quarantine"),
+		})
+	}
+	return out
+}
+
+func actionOrDefault(action, fallback string) string {
+	action = strings.ToLower(strings.TrimSpace(action))
+	switch action {
+	case "mark", "quarantine", "reject":
+		return action
+	default:
+		return fallback
+	}
+}
+
+func rspamdSafeName(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	var builder strings.Builder
+	for _, r := range value {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			builder.WriteRune(r)
+		} else {
+			builder.WriteRune('_')
+		}
+	}
+	return strings.Trim(builder.String(), "_")
 }
