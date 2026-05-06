@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type Store interface {
@@ -17,6 +18,10 @@ type Store interface {
 	SendMessage(ctx context.Context, message OutboundMessage) error
 	ReportMessage(ctx context.Context, email, id, verdict string) error
 	MoveMessage(ctx context.Context, email, id, folder string) error
+	ListContacts(ctx context.Context, email string) ([]Contact, error)
+	CreateContact(ctx context.Context, email string, contact Contact) (Contact, error)
+	ListCalendarEvents(ctx context.Context, email string) ([]CalendarEvent, error)
+	CreateCalendarEvent(ctx context.Context, email string, event CalendarEvent) (CalendarEvent, error)
 }
 
 type OutboundMessage struct {
@@ -24,6 +29,19 @@ type OutboundMessage struct {
 	To      []string `json:"to"`
 	Subject string   `json:"subject"`
 	Body    string   `json:"body"`
+}
+
+type Contact struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Email string `json:"email"`
+}
+
+type CalendarEvent struct {
+	ID       string    `json:"id"`
+	Title    string    `json:"title"`
+	StartsAt time.Time `json:"starts_at"`
+	EndsAt   time.Time `json:"ends_at"`
 }
 
 type handler struct {
@@ -37,6 +55,8 @@ func NewRouter(store Store) http.Handler {
 	mux.HandleFunc("/api/v1/messages", h.messages)
 	mux.HandleFunc("/api/v1/messages/", h.message)
 	mux.HandleFunc("/api/v1/send", h.send)
+	mux.HandleFunc("/api/v1/contacts", h.contacts)
+	mux.HandleFunc("/api/v1/calendar", h.calendar)
 	mux.HandleFunc("/", index)
 	return mux
 }
@@ -193,6 +213,76 @@ func (h handler) send(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "queued"})
+}
+
+func (h handler) contacts(w http.ResponseWriter, r *http.Request) {
+	email, ok := h.authorized(w, r)
+	if !ok {
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		contacts, err := h.store.ListContacts(r.Context(), email)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "list contacts failed")
+			return
+		}
+		writeJSON(w, http.StatusOK, contacts)
+	case http.MethodPost:
+		var req Contact
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid json")
+			return
+		}
+		if strings.TrimSpace(req.Name) == "" || strings.TrimSpace(req.Email) == "" {
+			writeError(w, http.StatusBadRequest, "name and email are required")
+			return
+		}
+		contact, err := h.store.CreateContact(r.Context(), email, Contact{Name: strings.TrimSpace(req.Name), Email: strings.TrimSpace(req.Email)})
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "create contact failed")
+			return
+		}
+		writeJSON(w, http.StatusCreated, contact)
+	default:
+		w.Header().Set("Allow", "GET, POST")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (h handler) calendar(w http.ResponseWriter, r *http.Request) {
+	email, ok := h.authorized(w, r)
+	if !ok {
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		events, err := h.store.ListCalendarEvents(r.Context(), email)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "list calendar failed")
+			return
+		}
+		writeJSON(w, http.StatusOK, events)
+	case http.MethodPost:
+		var req CalendarEvent
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid json")
+			return
+		}
+		if strings.TrimSpace(req.Title) == "" || req.StartsAt.IsZero() || req.EndsAt.IsZero() {
+			writeError(w, http.StatusBadRequest, "title, starts_at, and ends_at are required")
+			return
+		}
+		event, err := h.store.CreateCalendarEvent(r.Context(), email, CalendarEvent{Title: strings.TrimSpace(req.Title), StartsAt: req.StartsAt, EndsAt: req.EndsAt})
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "create calendar event failed")
+			return
+		}
+		writeJSON(w, http.StatusCreated, event)
+	default:
+		w.Header().Set("Allow", "GET, POST")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
 }
 
 func (h handler) authorized(w http.ResponseWriter, r *http.Request) (string, bool) {

@@ -144,6 +144,74 @@ func TestMoveMessageEndpointMovesSelectedMessage(t *testing.T) {
 	}
 }
 
+func TestContactsEndpointReturnsContacts(t *testing.T) {
+	handler := NewRouter(&fakeStore{valid: true})
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/contacts", nil)
+	req.SetBasicAuth("marko@example.com", "secret123456")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "Ada Lovelace") {
+		t.Fatalf("contacts missing expected person: %s", rec.Body.String())
+	}
+}
+
+func TestCreateContactEndpointUsesAuthenticatedUser(t *testing.T) {
+	store := &fakeStore{valid: true}
+	handler := NewRouter(store)
+	body := `{"name":"Ada Lovelace","email":"ada@example.net"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/contacts", strings.NewReader(body))
+	req.SetBasicAuth("marko@example.com", "secret123456")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d, body %s", rec.Code, http.StatusCreated, rec.Body.String())
+	}
+	if store.createdContact.Email != "ada@example.net" || store.createdContact.Name != "Ada Lovelace" {
+		t.Fatalf("unexpected created contact: %+v", store.createdContact)
+	}
+}
+
+func TestCalendarEndpointReturnsEvents(t *testing.T) {
+	handler := NewRouter(&fakeStore{valid: true})
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/calendar", nil)
+	req.SetBasicAuth("marko@example.com", "secret123456")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "Planning") {
+		t.Fatalf("calendar missing expected event: %s", rec.Body.String())
+	}
+}
+
+func TestCreateCalendarEndpointUsesAuthenticatedUser(t *testing.T) {
+	store := &fakeStore{valid: true}
+	handler := NewRouter(store)
+	body := `{"title":"Planning","starts_at":"2026-05-07T10:00:00Z","ends_at":"2026-05-07T11:00:00Z"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/calendar", strings.NewReader(body))
+	req.SetBasicAuth("marko@example.com", "secret123456")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d, body %s", rec.Code, http.StatusCreated, rec.Body.String())
+	}
+	if store.createdEvent.Title != "Planning" {
+		t.Fatalf("unexpected created event: %+v", store.createdEvent)
+	}
+}
+
 func TestCompositeStoreReportsSpamByLearningAndMovingMessage(t *testing.T) {
 	root := t.TempDir()
 	messageDir := filepath.Join(root, "example.com", "marko", "Maildir", "new")
@@ -183,6 +251,8 @@ type fakeStore struct {
 	movedEmail      string
 	movedID         string
 	movedFolder     string
+	createdContact  Contact
+	createdEvent    CalendarEvent
 }
 
 func (s *fakeStore) VerifyUserPassword(ctx context.Context, email, password string) (bool, error) {
@@ -220,6 +290,26 @@ func (s *fakeStore) MoveMessage(ctx context.Context, email, id, folder string) e
 	s.movedID = id
 	s.movedFolder = folder
 	return nil
+}
+
+func (s *fakeStore) ListContacts(ctx context.Context, email string) ([]Contact, error) {
+	return []Contact{{ID: "ada", Name: "Ada Lovelace", Email: "ada@example.net"}}, nil
+}
+
+func (s *fakeStore) CreateContact(ctx context.Context, email string, contact Contact) (Contact, error) {
+	s.createdContact = contact
+	contact.ID = "ada"
+	return contact, nil
+}
+
+func (s *fakeStore) ListCalendarEvents(ctx context.Context, email string) ([]CalendarEvent, error) {
+	return []CalendarEvent{{ID: "planning", Title: "Planning"}}, nil
+}
+
+func (s *fakeStore) CreateCalendarEvent(ctx context.Context, email string, event CalendarEvent) (CalendarEvent, error) {
+	s.createdEvent = event
+	event.ID = "planning"
+	return event, nil
 }
 
 type reportRecorder struct {

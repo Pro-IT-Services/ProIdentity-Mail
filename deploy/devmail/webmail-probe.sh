@@ -55,6 +55,30 @@ if ! printf '%s' "${spam_list}" | grep -q "Webmail probe"; then
   exit 1
 fi
 
+contact_code="$(curl -sS -m 5 -u "${email}:${password}" -H "Content-Type: application/json" --data '{"name":"Ada Lovelace","email":"ada@example.net"}' -o /tmp/proidentity-webmail-contact.out -w "%{http_code}" http://127.0.0.1:8082/api/v1/contacts)"
+echo "contact_status=${contact_code}"
+if [[ "${contact_code}" != "201" ]]; then
+  cat /tmp/proidentity-webmail-contact.out
+  exit 1
+fi
+contacts="$(curl -sS -m 5 -u "${email}:${password}" http://127.0.0.1:8082/api/v1/contacts)"
+if ! printf '%s' "${contacts}" | grep -q "Ada Lovelace"; then
+  echo "created contact missing" >&2
+  exit 1
+fi
+
+event_code="$(curl -sS -m 5 -u "${email}:${password}" -H "Content-Type: application/json" --data '{"title":"Planning","starts_at":"2026-05-07T10:00:00Z","ends_at":"2026-05-07T11:00:00Z"}' -o /tmp/proidentity-webmail-event.out -w "%{http_code}" http://127.0.0.1:8082/api/v1/calendar)"
+echo "event_status=${event_code}"
+if [[ "${event_code}" != "201" ]]; then
+  cat /tmp/proidentity-webmail-event.out
+  exit 1
+fi
+events="$(curl -sS -m 5 -u "${email}:${password}" http://127.0.0.1:8082/api/v1/calendar)"
+if ! printf '%s' "${events}" | grep -q "Planning"; then
+  echo "created calendar event missing" >&2
+  exit 1
+fi
+
 send_body="{\"to\":[\"${email}\"],\"subject\":\"Webmail API send\",\"body\":\"hello from compose api\"}"
 send_code="$(curl -sS -m 5 -u "${email}:${password}" -H "Content-Type: application/json" --data "${send_body}" -o /tmp/proidentity-webmail-send.out -w "%{http_code}" http://127.0.0.1:8082/api/v1/send)"
 echo "send_status=${send_code}"

@@ -2,8 +2,13 @@ package webmail
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
+	"fmt"
 	"log"
+	"strings"
+	"time"
 
 	"proidentity-mail/internal/security"
 )
@@ -66,6 +71,141 @@ func (s SQLAuthStore) ReportMessage(ctx context.Context, email, id, verdict stri
 	return err
 }
 
+func (s SQLAuthStore) ListContacts(ctx context.Context, email string) ([]Contact, error) {
+	bookID, err := s.ensureAddressBook(ctx, email)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT uid, COALESCE(full_name, ''), COALESCE(email, '')
+		FROM contact_objects
+		WHERE address_book_id = ?
+		ORDER BY full_name, email`, bookID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	contacts := make([]Contact, 0)
+	for rows.Next() {
+		var contact Contact
+		if err := rows.Scan(&contact.ID, &contact.Name, &contact.Email); err != nil {
+			return nil, err
+		}
+		contacts = append(contacts, contact)
+	}
+	return contacts, rows.Err()
+}
+
+func (s SQLAuthStore) CreateContact(ctx context.Context, email string, contact Contact) (Contact, error) {
+	bookID, err := s.ensureAddressBook(ctx, email)
+	if err != nil {
+		return Contact{}, err
+	}
+	uid := fmt.Sprintf("contact-%d", time.Now().UnixNano())
+	href := uid + ".vcf"
+	body := fmt.Sprintf("BEGIN:VCARD\r\nVERSION:3.0\r\nUID:%s\r\nFN:%s\r\nEMAIL:%s\r\nEND:VCARD\r\n", uid, contact.Name, contact.Email)
+	_, err = s.db.ExecContext(ctx, `
+		INSERT INTO contact_objects(address_book_id, uid, href, etag, vcard, full_name, email)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`, bookID, uid, href, objectETag(body), body, contact.Name, contact.Email)
+	if err != nil {
+		return Contact{}, err
+	}
+	contact.ID = uid
+	return contact, nil
+}
+
+func (s SQLAuthStore) ListCalendarEvents(ctx context.Context, email string) ([]CalendarEvent, error) {
+	calendarID, err := s.ensureCalendar(ctx, email)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT uid, icalendar, starts_at, ends_at
+		FROM calendar_objects
+		WHERE calendar_id = ?
+		ORDER BY COALESCE(starts_at, created_at), uid`, calendarID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	events := make([]CalendarEvent, 0)
+	for rows.Next() {
+		var event CalendarEvent
+		var body string
+		var startsAt sql.NullTime
+		var endsAt sql.NullTime
+		if err := rows.Scan(&event.ID, &body, &startsAt, &endsAt); err != nil {
+			return nil, err
+		}
+		event.Title = icalValue(body, "SUMMARY")
+		if startsAt.Valid {
+			event.StartsAt = startsAt.Time
+		}
+		if endsAt.Valid {
+			event.EndsAt = endsAt.Time
+		}
+		events = append(events, event)
+	}
+	return events, rows.Err()
+}
+
+func (s SQLAuthStore) CreateCalendarEvent(ctx context.Context, email string, event CalendarEvent) (CalendarEvent, error) {
+	calendarID, err := s.ensureCalendar(ctx, email)
+	if err != nil {
+		return CalendarEvent{}, err
+	}
+	uid := fmt.Sprintf("event-%d", time.Now().UnixNano())
+	href := uid + ".ics"
+	body := fmt.Sprintf("BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//ProIdentity//Mail//EN\r\nBEGIN:VEVENT\r\nUID:%s\r\nSUMMARY:%s\r\nDTSTART:%s\r\nDTEND:%s\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n", uid, event.Title, event.StartsAt.UTC().Format("20060102T150405Z"), event.EndsAt.UTC().Format("20060102T150405Z"))
+	_, err = s.db.ExecContext(ctx, `
+		INSERT INTO calendar_objects(calendar_id, uid, href, etag, icalendar, starts_at, ends_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`, calendarID, uid, href, objectETag(body), body, event.StartsAt.UTC(), event.EndsAt.UTC())
+	if err != nil {
+		return CalendarEvent{}, err
+	}
+	event.ID = uid
+	return event, nil
+}
+
+func (s SQLAuthStore) ensureAddressBook(ctx context.Context, email string) (uint64, error) {
+	tenantID, userID, err := s.userIDs(ctx, email)
+	if err != nil {
+		return 0, err
+	}
+	if _, err := s.db.ExecContext(ctx, `INSERT IGNORE INTO address_books(tenant_id, user_id, slug, display_name) VALUES (?, ?, 'default', 'Default Address Book')`, tenantID, userID); err != nil {
+		return 0, err
+	}
+	var id uint64
+	err = s.db.QueryRowContext(ctx, `SELECT id FROM address_books WHERE user_id = ? AND slug = 'default'`, userID).Scan(&id)
+	return id, err
+}
+
+func (s SQLAuthStore) ensureCalendar(ctx context.Context, email string) (uint64, error) {
+	tenantID, userID, err := s.userIDs(ctx, email)
+	if err != nil {
+		return 0, err
+	}
+	if _, err := s.db.ExecContext(ctx, `INSERT IGNORE INTO calendars(tenant_id, user_id, slug, display_name) VALUES (?, ?, 'default', 'Default Calendar')`, tenantID, userID); err != nil {
+		return 0, err
+	}
+	var id uint64
+	err = s.db.QueryRowContext(ctx, `SELECT id FROM calendars WHERE user_id = ? AND slug = 'default'`, userID).Scan(&id)
+	return id, err
+}
+
+func (s SQLAuthStore) userIDs(ctx context.Context, email string) (uint64, uint64, error) {
+	var tenantID, userID uint64
+	err := s.db.QueryRowContext(ctx, `
+		SELECT u.tenant_id, u.id
+		FROM users u
+		JOIN domains d ON d.id = u.primary_domain_id
+		WHERE CONCAT(u.local_part, '@', d.name) = ?
+		  AND u.status = 'active'
+		  AND d.status IN ('pending', 'active')
+		LIMIT 1`, email).Scan(&tenantID, &userID)
+	return tenantID, userID, err
+}
+
 type CompositeStore struct {
 	Auth    AuthStore
 	Mailbox MaildirStore
@@ -126,4 +266,55 @@ func (s CompositeStore) ReportMessage(ctx context.Context, email, id, verdict st
 
 func (s CompositeStore) MoveMessage(ctx context.Context, email, id, folder string) error {
 	return s.Mailbox.MoveMessage(ctx, email, id, folder)
+}
+
+func (s CompositeStore) ListContacts(ctx context.Context, email string) ([]Contact, error) {
+	if store, ok := s.Auth.(interface {
+		ListContacts(context.Context, string) ([]Contact, error)
+	}); ok {
+		return store.ListContacts(ctx, email)
+	}
+	return nil, sql.ErrNoRows
+}
+
+func (s CompositeStore) CreateContact(ctx context.Context, email string, contact Contact) (Contact, error) {
+	if store, ok := s.Auth.(interface {
+		CreateContact(context.Context, string, Contact) (Contact, error)
+	}); ok {
+		return store.CreateContact(ctx, email, contact)
+	}
+	return Contact{}, sql.ErrNoRows
+}
+
+func (s CompositeStore) ListCalendarEvents(ctx context.Context, email string) ([]CalendarEvent, error) {
+	if store, ok := s.Auth.(interface {
+		ListCalendarEvents(context.Context, string) ([]CalendarEvent, error)
+	}); ok {
+		return store.ListCalendarEvents(ctx, email)
+	}
+	return nil, sql.ErrNoRows
+}
+
+func (s CompositeStore) CreateCalendarEvent(ctx context.Context, email string, event CalendarEvent) (CalendarEvent, error) {
+	if store, ok := s.Auth.(interface {
+		CreateCalendarEvent(context.Context, string, CalendarEvent) (CalendarEvent, error)
+	}); ok {
+		return store.CreateCalendarEvent(ctx, email, event)
+	}
+	return CalendarEvent{}, sql.ErrNoRows
+}
+
+func objectETag(body string) string {
+	sum := sha256.Sum256([]byte(body))
+	return `"` + hex.EncodeToString(sum[:]) + `"`
+}
+
+func icalValue(body, name string) string {
+	prefix := strings.ToUpper(name) + ":"
+	for _, line := range strings.Split(strings.ReplaceAll(body, "\r\n", "\n"), "\n") {
+		if strings.HasPrefix(strings.ToUpper(line), prefix) {
+			return strings.TrimSpace(line[len(prefix):])
+		}
+	}
+	return ""
 }

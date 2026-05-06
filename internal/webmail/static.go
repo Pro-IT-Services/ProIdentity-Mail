@@ -268,6 +268,17 @@ const webmailIndexHTML = `<!doctype html>
       padding: 18px;
     }
     .recommend h3 { margin: 0 0 12px; color: var(--primary); font-size: 15px; letter-spacing: .08em; }
+    .mini-grid { display: grid; gap: 10px; margin-top: 16px; }
+    .mini-row {
+      border: 1px solid var(--outline);
+      border-radius: 8px;
+      padding: 12px;
+      background: #fbfcff;
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+    }
     .rail {
       border-left: 1px solid var(--outline);
       display: flex;
@@ -412,9 +423,9 @@ const webmailIndexHTML = `<!doctype html>
     </section>
 
     <aside class="rail">
-      <span class="material-symbols-outlined">calendar_month</span>
+      <button class="tool-button" type="button" id="open-calendar" title="Calendar"><span class="material-symbols-outlined">calendar_month</span></button>
       <span class="material-symbols-outlined">task_alt</span>
-      <span class="material-symbols-outlined">contacts</span>
+      <button class="tool-button" type="button" id="open-contacts" title="Contacts"><span class="material-symbols-outlined">contacts</span></button>
       <div class="bottom">
         <span class="material-symbols-outlined">settings</span>
         <span class="material-symbols-outlined">help</span>
@@ -460,6 +471,40 @@ const webmailIndexHTML = `<!doctype html>
       const response = await fetch("/api/v1/messages/" + encodeURIComponent(state.selected.id) + "/move", {method: "POST", headers: {"Content-Type": "application/json", Authorization: "Basic " + state.token}, body: JSON.stringify({folder})});
       if (!response.ok) throw new Error("Move failed");
       await loadMessages();
+    }
+    async function loadContactsView() {
+      const response = await fetch("/api/v1/contacts", { headers: { Authorization: "Basic " + state.token } });
+      if (!response.ok) throw new Error("Contacts load failed");
+      const contacts = await response.json();
+      document.querySelector("#reader").innerHTML = "<h2>Contacts</h2><button class=\"primary-button\" id=\"add-contact\" type=\"button\">Add Contact</button><div class=\"mini-grid\">" + contacts.map(item => "<div class=\"mini-row\"><div><strong>" + esc(item.name) + "</strong><div class=\"muted\">" + esc(item.email) + "</div></div><span class=\"material-symbols-outlined\">contacts</span></div>").join("") + "</div>";
+      document.querySelector("#add-contact").addEventListener("click", createContact);
+    }
+    async function createContact() {
+      const name = prompt("Contact name");
+      if (!name) return;
+      const email = prompt("Contact email");
+      if (!email) return;
+      const response = await fetch("/api/v1/contacts", {method: "POST", headers: {"Content-Type": "application/json", Authorization: "Basic " + state.token}, body: JSON.stringify({name, email})});
+      if (!response.ok) throw new Error("Create contact failed");
+      await loadContactsView();
+    }
+    async function loadCalendarView() {
+      const response = await fetch("/api/v1/calendar", { headers: { Authorization: "Basic " + state.token } });
+      if (!response.ok) throw new Error("Calendar load failed");
+      const events = await response.json();
+      document.querySelector("#reader").innerHTML = "<h2>Calendar</h2><button class=\"primary-button\" id=\"add-event\" type=\"button\">Add Event</button><div class=\"mini-grid\">" + events.map(item => "<div class=\"mini-row\"><div><strong>" + esc(item.title) + "</strong><div class=\"muted\">" + esc(new Date(item.starts_at).toLocaleString()) + "</div></div><span class=\"material-symbols-outlined\">event</span></div>").join("") + "</div>";
+      document.querySelector("#add-event").addEventListener("click", createEvent);
+    }
+    async function createEvent() {
+      const title = prompt("Event title");
+      if (!title) return;
+      const start = prompt("Start time", new Date(Date.now() + 3600000).toISOString());
+      if (!start) return;
+      const end = prompt("End time", new Date(Date.now() + 7200000).toISOString());
+      if (!end) return;
+      const response = await fetch("/api/v1/calendar", {method: "POST", headers: {"Content-Type": "application/json", Authorization: "Basic " + state.token}, body: JSON.stringify({title, starts_at: new Date(start).toISOString(), ends_at: new Date(end).toISOString()})});
+      if (!response.ok) throw new Error("Create event failed");
+      await loadCalendarView();
     }
     async function reportSelected(verdict) {
       if (!state.selected) return;
@@ -534,6 +579,8 @@ const webmailIndexHTML = `<!doctype html>
     document.querySelector("#mark-ham").addEventListener("click", () => reportSelected("ham").catch(error => alert(error.message)));
     document.querySelector("#archive-message").addEventListener("click", () => moveSelected("archive").catch(error => alert(error.message)));
     document.querySelector("#trash-message").addEventListener("click", () => moveSelected("trash").catch(error => alert(error.message)));
+    document.querySelector("#open-contacts").addEventListener("click", () => loadContactsView().catch(error => alert(error.message)));
+    document.querySelector("#open-calendar").addEventListener("click", () => loadCalendarView().catch(error => alert(error.message)));
     document.querySelectorAll("[data-folder]").forEach(item => item.addEventListener("click", async () => {
       state.folder = item.dataset.folder;
       state.selected = null;
