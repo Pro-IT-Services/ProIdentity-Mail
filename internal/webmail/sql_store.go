@@ -66,9 +66,19 @@ func (s SQLAuthStore) ReportMessage(ctx context.Context, email, id, verdict stri
 }
 
 type CompositeStore struct {
-	Auth    SQLAuthStore
+	Auth    AuthStore
 	Mailbox MaildirStore
 	Sender  SMTPSender
+	Learner SpamLearner
+}
+
+type AuthStore interface {
+	VerifyUserPassword(ctx context.Context, email, password string) (bool, error)
+	ReportMessage(ctx context.Context, email, id, verdict string) error
+}
+
+type SpamLearner interface {
+	Learn(ctx context.Context, path, verdict string) error
 }
 
 func (s CompositeStore) VerifyUserPassword(ctx context.Context, email, password string) (bool, error) {
@@ -77,6 +87,10 @@ func (s CompositeStore) VerifyUserPassword(ctx context.Context, email, password 
 
 func (s CompositeStore) ListRecentMessages(ctx context.Context, email string, limit int) ([]MessageSummary, error) {
 	return s.Mailbox.ListRecentMessages(ctx, email, limit)
+}
+
+func (s CompositeStore) ListMessages(ctx context.Context, email, folder string, limit int) ([]MessageSummary, error) {
+	return s.Mailbox.ListMessages(ctx, email, folder, limit)
 }
 
 func (s CompositeStore) GetMessage(ctx context.Context, email, id string) (MessageDetail, error) {
@@ -88,5 +102,27 @@ func (s CompositeStore) SendMessage(ctx context.Context, message OutboundMessage
 }
 
 func (s CompositeStore) ReportMessage(ctx context.Context, email, id, verdict string) error {
+	path, err := s.Mailbox.MessagePath(ctx, email, id)
+	if err != nil {
+		return err
+	}
+	if s.Learner != nil {
+		if err := s.Learner.Learn(ctx, path, verdict); err != nil {
+			return err
+		}
+	}
+	if verdict == "spam" {
+		if err := s.Mailbox.MoveMessage(ctx, email, id, "spam"); err != nil {
+			return err
+		}
+	} else if verdict == "ham" {
+		if err := s.Mailbox.MoveMessage(ctx, email, id, "inbox"); err != nil {
+			return err
+		}
+	}
 	return s.Auth.ReportMessage(ctx, email, id, verdict)
+}
+
+func (s CompositeStore) MoveMessage(ctx context.Context, email, id, folder string) error {
+	return s.Mailbox.MoveMessage(ctx, email, id, folder)
 }

@@ -74,3 +74,35 @@ func TestMaildirStoreRejectsUnsafeMessageID(t *testing.T) {
 		t.Fatal("expected unsafe message ID to fail")
 	}
 }
+
+func TestMaildirStoreMovesMessageToSpamFolder(t *testing.T) {
+	root := t.TempDir()
+	messageDir := filepath.Join(root, "example.com", "marko", "Maildir", "new")
+	if err := os.MkdirAll(messageDir, 0750); err != nil {
+		t.Fatalf("mkdir maildir: %v", err)
+	}
+	messageID := "message-1"
+	raw := "From: sender@example.net\r\nTo: marko@example.com\r\nSubject: Spam\r\n\r\nspam body"
+	if err := os.WriteFile(filepath.Join(messageDir, messageID), []byte(raw), 0640); err != nil {
+		t.Fatalf("write message: %v", err)
+	}
+
+	store := MaildirStore{Root: root}
+	if err := store.MoveMessage(context.Background(), "marko@example.com", messageID, "spam"); err != nil {
+		t.Fatalf("MoveMessage returned error: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(messageDir, messageID)); !os.IsNotExist(err) {
+		t.Fatalf("original message still exists or stat failed unexpectedly: %v", err)
+	}
+	movedPath := filepath.Join(root, "example.com", "marko", "Maildir", ".Spam", "new", messageID)
+	if _, err := os.Stat(movedPath); err != nil {
+		t.Fatalf("moved message missing: %v", err)
+	}
+	message, err := store.GetMessage(context.Background(), "marko@example.com", messageID)
+	if err != nil {
+		t.Fatalf("GetMessage after move returned error: %v", err)
+	}
+	if message.Mailbox != ".Spam" {
+		t.Fatalf("mailbox = %q, want .Spam", message.Mailbox)
+	}
+}

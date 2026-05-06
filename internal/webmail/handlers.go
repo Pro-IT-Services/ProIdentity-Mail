@@ -12,9 +12,11 @@ import (
 type Store interface {
 	VerifyUserPassword(ctx context.Context, email, password string) (bool, error)
 	ListRecentMessages(ctx context.Context, email string, limit int) ([]MessageSummary, error)
+	ListMessages(ctx context.Context, email, folder string, limit int) ([]MessageSummary, error)
 	GetMessage(ctx context.Context, email, id string) (MessageDetail, error)
 	SendMessage(ctx context.Context, message OutboundMessage) error
 	ReportMessage(ctx context.Context, email, id, verdict string) error
+	MoveMessage(ctx context.Context, email, id, folder string) error
 }
 
 type OutboundMessage struct {
@@ -58,7 +60,11 @@ func (h handler) messages(w http.ResponseWriter, r *http.Request) {
 	if limit <= 0 || limit > 300 {
 		limit = 100
 	}
-	messages, err := h.store.ListRecentMessages(r.Context(), email, limit)
+	folder := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("folder")))
+	if folder == "" {
+		folder = "inbox"
+	}
+	messages, err := h.store.ListMessages(r.Context(), email, folder, limit)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "list messages failed")
 		return
@@ -74,6 +80,10 @@ func (h handler) message(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimPrefix(r.URL.Path, "/api/v1/messages/")
 	if strings.HasSuffix(id, "/report") {
 		h.reportMessage(w, r, email, strings.TrimSuffix(id, "/report"))
+		return
+	}
+	if strings.HasSuffix(id, "/move") {
+		h.moveMessage(w, r, email, strings.TrimSuffix(id, "/move"))
 		return
 	}
 	if id == "" {
@@ -121,6 +131,36 @@ func (h handler) reportMessage(w http.ResponseWriter, r *http.Request, email, id
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "recorded"})
+}
+
+func (h handler) moveMessage(w http.ResponseWriter, r *http.Request, email, id string) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "message id is required")
+		return
+	}
+	var req struct {
+		Folder string `json:"folder"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	req.Folder = strings.ToLower(strings.TrimSpace(req.Folder))
+	if req.Folder != "inbox" && req.Folder != "spam" && req.Folder != "trash" && req.Folder != "archive" {
+		writeError(w, http.StatusBadRequest, "folder must be inbox, spam, trash, or archive")
+		return
+	}
+	if err := h.store.MoveMessage(r.Context(), email, id, req.Folder); err != nil {
+		log.Printf("webmail move failed email=%q id=%q folder=%q: %v", email, id, req.Folder, err)
+		writeError(w, http.StatusInternalServerError, "move message failed")
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "moved"})
 }
 
 func (h handler) send(w http.ResponseWriter, r *http.Request) {

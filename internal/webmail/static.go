@@ -368,11 +368,10 @@ const webmailIndexHTML = `<!doctype html>
     <aside>
       <button class="compose" type="button"><span class="material-symbols-outlined">edit</span>Compose</button>
       <nav class="folder-list">
-        <button class="folder active"><span><span class="material-symbols-outlined">inbox</span>Inbox</span><span class="count" id="inbox-count">0</span></button>
-        <button class="folder"><span><span class="material-symbols-outlined">send</span>Sent</span></button>
-        <button class="folder"><span><span class="material-symbols-outlined">drafts</span>Drafts</span></button>
-        <button class="folder"><span><span class="material-symbols-outlined">delete</span>Trash</span></button>
-        <button class="folder"><span><span class="material-symbols-outlined">report</span>Spam</span><span>0</span></button>
+        <button class="folder active" data-folder="inbox"><span><span class="material-symbols-outlined">inbox</span>Inbox</span><span class="count" id="inbox-count">0</span></button>
+        <button class="folder" data-folder="archive"><span><span class="material-symbols-outlined">archive</span>Archive</span></button>
+        <button class="folder" data-folder="trash"><span><span class="material-symbols-outlined">delete</span>Trash</span></button>
+        <button class="folder" data-folder="spam"><span><span class="material-symbols-outlined">report</span>Spam</span></button>
       </nav>
       <div class="labels">
         <h3>Labels</h3>
@@ -389,10 +388,10 @@ const webmailIndexHTML = `<!doctype html>
 
     <section class="reader">
       <div class="toolbar">
-        <button class="tool-button" type="button" title="Archive"><span class="material-symbols-outlined">archive</span></button>
+        <button class="tool-button" type="button" id="archive-message" title="Archive"><span class="material-symbols-outlined">archive</span></button>
         <button class="tool-button" type="button" id="mark-spam" title="Mark as spam"><span class="material-symbols-outlined">report</span></button>
         <button class="tool-button" type="button" id="mark-ham" title="Mark as not spam"><span class="material-symbols-outlined">verified</span></button>
-        <button class="tool-button" type="button" title="Delete"><span class="material-symbols-outlined">delete</span></button>
+        <button class="tool-button" type="button" id="trash-message" title="Delete"><span class="material-symbols-outlined">delete</span></button>
         <span style="height:24px;width:1px;background:var(--outline)"></span>
         <button class="tool-button" type="button" title="Reply"><span class="material-symbols-outlined">reply</span></button>
         <button class="tool-button" type="button" title="Reply all"><span class="material-symbols-outlined">reply_all</span></button>
@@ -444,24 +443,29 @@ const webmailIndexHTML = `<!doctype html>
   </form>
 
   <script>
-    const state = { token: "", email: "", messages: [], selected: null };
+    const state = { token: "", email: "", messages: [], selected: null, folder: "inbox" };
     const esc = value => String(value ?? "").replace(/[&<>"']/g, char => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[char]));
     const initials = email => String(email || "--").split("@")[0].split(/[._-]+/).filter(Boolean).slice(0, 2).map(part => part[0]).join("").toUpperCase() || "--";
     const messageTime = item => item.date ? new Date(item.date).toLocaleString([], {month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"}) : "";
     const shortFrom = value => String(value || "Unknown").replace(/<.*>/, "").replace(/"/g, "").trim() || "Unknown";
     async function loadMessages() {
-      const response = await fetch("/api/v1/messages?limit=100", { headers: { Authorization: "Basic " + state.token } });
+      const response = await fetch("/api/v1/messages?limit=100&folder=" + encodeURIComponent(state.folder), { headers: { Authorization: "Basic " + state.token } });
       if (!response.ok) throw new Error("Mailbox authentication failed");
       state.messages = await response.json();
       state.selected = state.messages[0] || null;
       render();
     }
+    async function moveSelected(folder) {
+      if (!state.selected) return;
+      const response = await fetch("/api/v1/messages/" + encodeURIComponent(state.selected.id) + "/move", {method: "POST", headers: {"Content-Type": "application/json", Authorization: "Basic " + state.token}, body: JSON.stringify({folder})});
+      if (!response.ok) throw new Error("Move failed");
+      await loadMessages();
+    }
     async function reportSelected(verdict) {
       if (!state.selected) return;
       const response = await fetch("/api/v1/messages/" + encodeURIComponent(state.selected.id) + "/report", {method: "POST", headers: {"Content-Type": "application/json", Authorization: "Basic " + state.token}, body: JSON.stringify({verdict})});
       if (!response.ok) throw new Error("Message report failed");
-      const label = verdict === "spam" ? "Marked as spam" : "Marked as not spam";
-      document.querySelector("#reader .recommend")?.insertAdjacentHTML("beforebegin", "<div class=\"recommend\"><h3>TRAINING RECORDED</h3><p>" + esc(label) + ". This event is saved for anti-spam learning and audit review.</p></div>");
+      await loadMessages();
     }
     function filteredMessages() {
       const q = document.querySelector("#search").value.trim().toLowerCase();
@@ -471,6 +475,8 @@ const webmailIndexHTML = `<!doctype html>
     function render() {
       document.querySelector("#avatar").textContent = initials(state.email);
       document.querySelector("#inbox-count").textContent = state.messages.length;
+      document.querySelector(".pane-head h2").textContent = state.folder.charAt(0).toUpperCase() + state.folder.slice(1);
+      document.querySelectorAll("[data-folder]").forEach(item => item.classList.toggle("active", item.dataset.folder === state.folder));
       const list = filteredMessages();
       document.querySelector("#messages").innerHTML = list.map((item, index) => {
         const active = state.selected && state.selected.id === item.id ? " active" : "";
@@ -526,6 +532,13 @@ const webmailIndexHTML = `<!doctype html>
     document.querySelector("#refresh").addEventListener("click", () => loadMessages().catch(error => document.querySelector("#error").textContent = error.message));
     document.querySelector("#mark-spam").addEventListener("click", () => reportSelected("spam").catch(error => alert(error.message)));
     document.querySelector("#mark-ham").addEventListener("click", () => reportSelected("ham").catch(error => alert(error.message)));
+    document.querySelector("#archive-message").addEventListener("click", () => moveSelected("archive").catch(error => alert(error.message)));
+    document.querySelector("#trash-message").addEventListener("click", () => moveSelected("trash").catch(error => alert(error.message)));
+    document.querySelectorAll("[data-folder]").forEach(item => item.addEventListener("click", async () => {
+      state.folder = item.dataset.folder;
+      state.selected = null;
+      await loadMessages();
+    }));
     document.querySelector("#search").addEventListener("input", render);
     document.addEventListener("click", event => {
       const button = event.target.closest("[data-id]");

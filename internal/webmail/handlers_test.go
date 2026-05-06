@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -22,7 +24,8 @@ func TestMessagesEndpointRequiresAuth(t *testing.T) {
 }
 
 func TestMessagesEndpointReturnsRecentMessages(t *testing.T) {
-	handler := NewRouter(&fakeStore{valid: true})
+	store := &fakeStore{valid: true}
+	handler := NewRouter(store)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/messages?limit=1", nil)
 	req.SetBasicAuth("marko@example.com", "secret123456")
 	rec := httptest.NewRecorder()
@@ -41,6 +44,26 @@ func TestMessagesEndpointReturnsRecentMessages(t *testing.T) {
 	}
 	if messages[0].Subject != "Welcome" {
 		t.Fatalf("subject = %q, want Welcome", messages[0].Subject)
+	}
+	if store.folder != "inbox" {
+		t.Fatalf("folder = %q, want inbox", store.folder)
+	}
+}
+
+func TestMessagesEndpointSupportsSpamFolder(t *testing.T) {
+	store := &fakeStore{valid: true}
+	handler := NewRouter(store)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/messages?folder=spam", nil)
+	req.SetBasicAuth("marko@example.com", "secret123456")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if store.folder != "spam" {
+		t.Fatalf("folder = %q, want spam", store.folder)
 	}
 }
 
@@ -103,12 +126,63 @@ func TestReportMessageEndpointRecordsSpamTraining(t *testing.T) {
 	}
 }
 
+func TestMoveMessageEndpointMovesSelectedMessage(t *testing.T) {
+	store := &fakeStore{valid: true}
+	handler := NewRouter(store)
+	body := `{"folder":"trash"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/messages/1/move", strings.NewReader(body))
+	req.SetBasicAuth("marko@example.com", "secret123456")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want %d, body %s", rec.Code, http.StatusAccepted, rec.Body.String())
+	}
+	if store.movedEmail != "marko@example.com" || store.movedID != "1" || store.movedFolder != "trash" {
+		t.Fatalf("unexpected move: email=%q id=%q folder=%q", store.movedEmail, store.movedID, store.movedFolder)
+	}
+}
+
+func TestCompositeStoreReportsSpamByLearningAndMovingMessage(t *testing.T) {
+	root := t.TempDir()
+	messageDir := filepath.Join(root, "example.com", "marko", "Maildir", "new")
+	if err := os.MkdirAll(messageDir, 0750); err != nil {
+		t.Fatalf("mkdir maildir: %v", err)
+	}
+	messageID := "message-1"
+	messagePath := filepath.Join(messageDir, messageID)
+	if err := os.WriteFile(messagePath, []byte("From: sender@example.net\r\nTo: marko@example.com\r\nSubject: Bad\r\n\r\nbody"), 0640); err != nil {
+		t.Fatalf("write message: %v", err)
+	}
+	auth := &reportRecorder{}
+	learner := &fakeLearner{}
+	store := CompositeStore{Auth: auth, Mailbox: MaildirStore{Root: root}, Learner: learner}
+
+	if err := store.ReportMessage(context.Background(), "marko@example.com", messageID, "spam"); err != nil {
+		t.Fatalf("ReportMessage returned error: %v", err)
+	}
+	if learner.verdict != "spam" || learner.path != messagePath {
+		t.Fatalf("unexpected learner call: verdict=%q path=%q", learner.verdict, learner.path)
+	}
+	if auth.verdict != "spam" || auth.messageID != messageID {
+		t.Fatalf("unexpected audit call: verdict=%q id=%q", auth.verdict, auth.messageID)
+	}
+	if _, err := os.Stat(filepath.Join(root, "example.com", "marko", "Maildir", ".Spam", "new", messageID)); err != nil {
+		t.Fatalf("message was not moved to spam: %v", err)
+	}
+}
+
 type fakeStore struct {
 	valid           bool
 	sent            OutboundMessage
 	reportedEmail   string
 	reportedID      string
 	reportedVerdict string
+	folder          string
+	movedEmail      string
+	movedID         string
+	movedFolder     string
 }
 
 func (s *fakeStore) VerifyUserPassword(ctx context.Context, email, password string) (bool, error) {
@@ -116,6 +190,12 @@ func (s *fakeStore) VerifyUserPassword(ctx context.Context, email, password stri
 }
 
 func (s *fakeStore) ListRecentMessages(ctx context.Context, email string, limit int) ([]MessageSummary, error) {
+	s.folder = "inbox"
+	return []MessageSummary{{ID: "1", From: "sender@example.net", To: email, Subject: "Welcome", Preview: "Hello"}}, nil
+}
+
+func (s *fakeStore) ListMessages(ctx context.Context, email, folder string, limit int) ([]MessageSummary, error) {
+	s.folder = folder
 	return []MessageSummary{{ID: "1", From: "sender@example.net", To: email, Subject: "Welcome", Preview: "Hello"}}, nil
 }
 
@@ -132,5 +212,38 @@ func (s *fakeStore) ReportMessage(ctx context.Context, email, id, verdict string
 	s.reportedEmail = email
 	s.reportedID = id
 	s.reportedVerdict = verdict
+	return nil
+}
+
+func (s *fakeStore) MoveMessage(ctx context.Context, email, id, folder string) error {
+	s.movedEmail = email
+	s.movedID = id
+	s.movedFolder = folder
+	return nil
+}
+
+type reportRecorder struct {
+	messageID string
+	verdict   string
+}
+
+func (r *reportRecorder) VerifyUserPassword(ctx context.Context, email, password string) (bool, error) {
+	return true, nil
+}
+
+func (r *reportRecorder) ReportMessage(ctx context.Context, email, id, verdict string) error {
+	r.messageID = id
+	r.verdict = verdict
+	return nil
+}
+
+type fakeLearner struct {
+	path    string
+	verdict string
+}
+
+func (l *fakeLearner) Learn(ctx context.Context, path, verdict string) error {
+	l.path = path
+	l.verdict = verdict
 	return nil
 }

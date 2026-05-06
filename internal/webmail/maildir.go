@@ -41,6 +41,10 @@ type MaildirStore struct {
 }
 
 func (s MaildirStore) ListRecentMessages(ctx context.Context, email string, limit int) ([]MessageSummary, error) {
+	return s.ListMessages(ctx, email, "inbox", limit)
+}
+
+func (s MaildirStore) ListMessages(ctx context.Context, email, folder string, limit int) ([]MessageSummary, error) {
 	if limit <= 0 || limit > 300 {
 		limit = 300
 	}
@@ -50,7 +54,7 @@ func (s MaildirStore) ListRecentMessages(ctx context.Context, email string, limi
 	}
 	root := filepath.Join(s.Root, domain, local, "Maildir")
 	var paths []string
-	for _, mailbox := range []string{"new", "cur"} {
+	for _, mailbox := range folderMailboxes(folder) {
 		dir := filepath.Join(root, mailbox)
 		entries, err := os.ReadDir(dir)
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -90,6 +94,21 @@ func (s MaildirStore) ListRecentMessages(ctx context.Context, email string, limi
 	return messages, nil
 }
 
+func folderMailboxes(folder string) []string {
+	switch strings.ToLower(strings.TrimSpace(folder)) {
+	case "spam":
+		return []string{filepath.Join(".Spam", "new"), filepath.Join(".Spam", "cur")}
+	case "trash":
+		return []string{filepath.Join(".Trash", "new"), filepath.Join(".Trash", "cur")}
+	case "archive":
+		return []string{filepath.Join(".Archive", "new"), filepath.Join(".Archive", "cur")}
+	case "all":
+		return []string{"new", "cur", filepath.Join(".Spam", "new"), filepath.Join(".Spam", "cur"), filepath.Join(".Trash", "new"), filepath.Join(".Trash", "cur"), filepath.Join(".Archive", "new"), filepath.Join(".Archive", "cur")}
+	default:
+		return []string{"new", "cur"}
+	}
+}
+
 func parseMessageSummary(path, maildirRoot string) (MessageSummary, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -119,30 +138,89 @@ func parseMessageSummary(path, maildirRoot string) (MessageSummary, error) {
 }
 
 func (s MaildirStore) GetMessage(ctx context.Context, email, id string) (MessageDetail, error) {
-	if strings.Contains(id, "/") || strings.Contains(id, `\`) || strings.Contains(id, "..") || id == "" {
-		return MessageDetail{}, errors.New("invalid message id")
+	root, err := s.maildirRoot(email)
+	if err != nil {
+		return MessageDetail{}, err
 	}
+	path, err := s.messagePath(ctx, root, id)
+	if err != nil {
+		return MessageDetail{}, err
+	}
+	return parseMessageDetail(path, root)
+}
+
+func (s MaildirStore) MoveMessage(ctx context.Context, email, id, folder string) error {
+	root, err := s.maildirRoot(email)
+	if err != nil {
+		return err
+	}
+	source, err := s.messagePath(ctx, root, id)
+	if err != nil {
+		return err
+	}
+	destinationMailbox, err := destinationMailbox(folder)
+	if err != nil {
+		return err
+	}
+	destinationDir := filepath.Join(root, destinationMailbox, "new")
+	if destinationMailbox == "new" {
+		destinationDir = filepath.Join(root, "new")
+	}
+	if err := os.MkdirAll(destinationDir, 0750); err != nil {
+		return err
+	}
+	return os.Rename(source, filepath.Join(destinationDir, filepath.Base(source)))
+}
+
+func (s MaildirStore) MessagePath(ctx context.Context, email, id string) (string, error) {
+	root, err := s.maildirRoot(email)
+	if err != nil {
+		return "", err
+	}
+	return s.messagePath(ctx, root, id)
+}
+
+func (s MaildirStore) maildirRoot(email string) (string, error) {
 	local, domain, ok := strings.Cut(strings.ToLower(email), "@")
 	if !ok || local == "" || domain == "" {
-		return MessageDetail{}, errors.New("valid email is required")
+		return "", errors.New("valid email is required")
 	}
-	root := filepath.Join(s.Root, domain, local, "Maildir")
-	for _, mailbox := range []string{"new", "cur"} {
+	return filepath.Join(s.Root, domain, local, "Maildir"), nil
+}
+
+func (s MaildirStore) messagePath(ctx context.Context, root, id string) (string, error) {
+	if strings.Contains(id, "/") || strings.Contains(id, `\`) || strings.Contains(id, "..") || id == "" {
+		return "", errors.New("invalid message id")
+	}
+	for _, mailbox := range []string{"new", "cur", ".Spam/new", ".Spam/cur", ".Trash/new", ".Trash/cur", ".Archive/new", ".Archive/cur"} {
 		select {
 		case <-ctx.Done():
-			return MessageDetail{}, ctx.Err()
+			return "", ctx.Err()
 		default:
 		}
-		path := filepath.Join(root, mailbox, id)
-		message, err := parseMessageDetail(path, root)
-		if err == nil {
-			return message, nil
-		}
-		if !errors.Is(err, os.ErrNotExist) {
-			return MessageDetail{}, err
+		path := filepath.Join(root, filepath.FromSlash(mailbox), id)
+		if _, err := os.Stat(path); err == nil {
+			return path, nil
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return "", err
 		}
 	}
-	return MessageDetail{}, os.ErrNotExist
+	return "", os.ErrNotExist
+}
+
+func destinationMailbox(folder string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(folder)) {
+	case "inbox", "":
+		return "new", nil
+	case "spam":
+		return ".Spam", nil
+	case "trash":
+		return ".Trash", nil
+	case "archive":
+		return ".Archive", nil
+	default:
+		return "", errors.New("unsupported mailbox folder")
+	}
 }
 
 func parseMessageDetail(path, maildirRoot string) (MessageDetail, error) {

@@ -25,6 +25,7 @@ func main() {
 		Auth:    webmail.NewSQLAuthStore(conn),
 		Mailbox: webmail.MaildirStore{Root: "/var/vmail"},
 		Sender:  webmail.SMTPSender{Addr: "127.0.0.1:25"},
+		Learner: webmail.RspamdLearner{},
 	}
 	server := http.Server{
 		Addr:              cfg.WebmailAddr,

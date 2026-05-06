@@ -16,7 +16,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
 ProtectHome=true
-ReadOnlyPaths=/var/vmail
+ReadWritePaths=/var/vmail
 
 [Install]
 WantedBy=multi-user.target
