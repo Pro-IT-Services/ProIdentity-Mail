@@ -21,3 +21,13 @@ func TCP(ctx context.Context, name, address string) CheckResult {
 	_ = conn.Close()
 	return CheckResult{Name: name, OK: true}
 }
+
+func Unix(ctx context.Context, name, path string) CheckResult {
+	dialer := net.Dialer{Timeout: 3 * time.Second}
+	conn, err := dialer.DialContext(ctx, "unix", path)
+	if err != nil {
+		return CheckResult{Name: name, OK: false, Err: err.Error()}
+	}
+	_ = conn.Close()
+	return CheckResult{Name: name, OK: true}
+}

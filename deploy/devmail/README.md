@@ -15,10 +15,7 @@ bash deploy/devmail/install-packages.sh
 ## Runtime User
 
 ```bash
-useradd --system --home /opt/proidentity-mail --shell /usr/sbin/nologin proidentity
-mkdir -p /etc/proidentity-mail/generated /opt/proidentity-mail/bin
-chown -R proidentity:proidentity /etc/proidentity-mail /opt/proidentity-mail
-chmod 750 /etc/proidentity-mail
+bash deploy/devmail/setup-runtime.sh
 ```
 
 ## Database
