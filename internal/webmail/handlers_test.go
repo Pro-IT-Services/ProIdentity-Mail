@@ -231,6 +231,41 @@ func TestMoveMessageEndpointMovesSelectedMessage(t *testing.T) {
 	}
 }
 
+func TestFoldersEndpointCreatesFolder(t *testing.T) {
+	store := &fakeStore{valid: true}
+	handler := NewRouter(store)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/folders", strings.NewReader(`{"name":"Projects"}`))
+	req.SetBasicAuth("marko@example.com", "secret123456")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d, body %s", rec.Code, http.StatusCreated, rec.Body.String())
+	}
+	if store.createdFolder != "Projects" {
+		t.Fatalf("created folder = %q, want Projects", store.createdFolder)
+	}
+}
+
+func TestFiltersEndpointCreatesFilter(t *testing.T) {
+	store := &fakeStore{valid: true}
+	handler := NewRouter(store)
+	body := `{"name":"Boss","field":"from","operator":"contains","value":"boss@example.com","action":"move","folder":"Projects","enabled":true}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/filters", strings.NewReader(body))
+	req.SetBasicAuth("marko@example.com", "secret123456")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d, body %s", rec.Code, http.StatusCreated, rec.Body.String())
+	}
+	if store.createdFilter.Name != "Boss" || store.createdFilter.Folder != "Projects" {
+		t.Fatalf("unexpected filter: %+v", store.createdFilter)
+	}
+}
+
 func TestContactsEndpointReturnsContacts(t *testing.T) {
 	handler := NewRouter(&fakeStore{valid: true})
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/contacts", nil)
@@ -423,6 +458,12 @@ type fakeStore struct {
 	reportedID           string
 	reportedVerdict      string
 	folder               string
+	createdFolder        string
+	deletedFolder        string
+	createdFilter        MailFilter
+	updatedFilterID      string
+	updatedFilter        MailFilter
+	deletedFilterID      string
 	movedEmail           string
 	movedID              string
 	movedFolder          string
@@ -472,6 +513,42 @@ func (s *fakeStore) MoveMessage(ctx context.Context, email, id, folder string) e
 	s.movedEmail = email
 	s.movedID = id
 	s.movedFolder = folder
+	return nil
+}
+
+func (s *fakeStore) ListFolders(ctx context.Context, email string) ([]MailFolder, error) {
+	return []MailFolder{{ID: "inbox", Name: "Inbox", System: true, Total: 1}}, nil
+}
+
+func (s *fakeStore) CreateFolder(ctx context.Context, email, name string) (MailFolder, error) {
+	s.createdFolder = name
+	return MailFolder{ID: name, Name: name}, nil
+}
+
+func (s *fakeStore) DeleteFolder(ctx context.Context, email, name string) error {
+	s.deletedFolder = name
+	return nil
+}
+
+func (s *fakeStore) ListFilters(ctx context.Context, email string) ([]MailFilter, error) {
+	return []MailFilter{{ID: "1", Name: "Boss", Field: "from", Operator: "contains", Value: "boss@example.com", Action: "move", Folder: "Projects", Enabled: true}}, nil
+}
+
+func (s *fakeStore) CreateFilter(ctx context.Context, email string, filter MailFilter) (MailFilter, error) {
+	s.createdFilter = filter
+	filter.ID = "1"
+	return filter, nil
+}
+
+func (s *fakeStore) UpdateFilter(ctx context.Context, email, id string, filter MailFilter) (MailFilter, error) {
+	s.updatedFilterID = id
+	s.updatedFilter = filter
+	filter.ID = id
+	return filter, nil
+}
+
+func (s *fakeStore) DeleteFilter(ctx context.Context, email, id string) error {
+	s.deletedFilterID = id
 	return nil
 }
 

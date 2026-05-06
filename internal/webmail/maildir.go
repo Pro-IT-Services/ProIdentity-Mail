@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/mail"
 	"os"
@@ -95,7 +96,8 @@ func (s MaildirStore) ListMessages(ctx context.Context, email, folder string, li
 }
 
 func folderMailboxes(folder string) []string {
-	switch strings.ToLower(strings.TrimSpace(folder)) {
+	name := strings.ToLower(strings.TrimSpace(folder))
+	switch name {
 	case "spam":
 		return []string{filepath.Join(".Spam", "new"), filepath.Join(".Spam", "cur")}
 	case "trash":
@@ -105,8 +107,90 @@ func folderMailboxes(folder string) []string {
 	case "all":
 		return []string{"new", "cur", filepath.Join(".Spam", "new"), filepath.Join(".Spam", "cur"), filepath.Join(".Trash", "new"), filepath.Join(".Trash", "cur"), filepath.Join(".Archive", "new"), filepath.Join(".Archive", "cur")}
 	default:
+		if mailbox, err := customMailboxName(folder); err == nil && mailbox != "" {
+			return []string{filepath.Join(mailbox, "new"), filepath.Join(mailbox, "cur")}
+		}
 		return []string{"new", "cur"}
 	}
+}
+
+func (s MaildirStore) ListFolders(ctx context.Context, email string) ([]MailFolder, error) {
+	root, err := s.maildirRoot(email)
+	if err != nil {
+		return nil, err
+	}
+	if err := ensureMaildir(root); err != nil {
+		return nil, err
+	}
+	folders := []MailFolder{
+		{ID: "inbox", Name: "Inbox", System: true},
+		{ID: "archive", Name: "Archive", System: true},
+		{ID: "spam", Name: "Spam", System: true},
+		{ID: "trash", Name: "Trash", System: true},
+	}
+	for i := range folders {
+		total, err := countFolderMessages(root, folders[i].ID)
+		if err != nil {
+			return nil, err
+		}
+		folders[i].Total = total
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() || !strings.HasPrefix(entry.Name(), ".") {
+			continue
+		}
+		id := strings.TrimPrefix(entry.Name(), ".")
+		if _, ok := systemFolderID(id); ok {
+			continue
+		}
+		total, err := countFolderMessages(root, id)
+		if err != nil {
+			return nil, err
+		}
+		folders = append(folders, MailFolder{ID: id, Name: id, System: false, Total: total})
+	}
+	sort.SliceStable(folders[4:], func(i, j int) bool {
+		return strings.ToLower(folders[4+i].Name) < strings.ToLower(folders[4+j].Name)
+	})
+	return folders, nil
+}
+
+func (s MaildirStore) CreateFolder(ctx context.Context, email, name string) (MailFolder, error) {
+	root, err := s.maildirRoot(email)
+	if err != nil {
+		return MailFolder{}, err
+	}
+	mailbox, err := customMailboxName(name)
+	if err != nil {
+		return MailFolder{}, err
+	}
+	if err := os.MkdirAll(filepath.Join(root, mailbox, "cur"), 0750); err != nil {
+		return MailFolder{}, err
+	}
+	if err := os.MkdirAll(filepath.Join(root, mailbox, "new"), 0750); err != nil {
+		return MailFolder{}, err
+	}
+	if err := os.MkdirAll(filepath.Join(root, mailbox, "tmp"), 0750); err != nil {
+		return MailFolder{}, err
+	}
+	id := strings.TrimPrefix(mailbox, ".")
+	return MailFolder{ID: id, Name: id, System: false}, nil
+}
+
+func (s MaildirStore) DeleteFolder(ctx context.Context, email, name string) error {
+	root, err := s.maildirRoot(email)
+	if err != nil {
+		return err
+	}
+	mailbox, err := customMailboxName(name)
+	if err != nil {
+		return err
+	}
+	return os.RemoveAll(filepath.Join(root, mailbox))
 }
 
 func parseMessageSummary(path, maildirRoot string) (MessageSummary, error) {
@@ -192,7 +276,14 @@ func (s MaildirStore) messagePath(ctx context.Context, root, id string) (string,
 	if strings.Contains(id, "/") || strings.Contains(id, `\`) || strings.Contains(id, "..") || id == "" {
 		return "", errors.New("invalid message id")
 	}
-	for _, mailbox := range []string{"new", "cur", ".Spam/new", ".Spam/cur", ".Trash/new", ".Trash/cur", ".Archive/new", ".Archive/cur"} {
+	mailboxes := []string{"new", "cur", ".Spam/new", ".Spam/cur", ".Trash/new", ".Trash/cur", ".Archive/new", ".Archive/cur"}
+	entries, _ := os.ReadDir(root)
+	for _, entry := range entries {
+		if entry.IsDir() && strings.HasPrefix(entry.Name(), ".") {
+			mailboxes = append(mailboxes, filepath.ToSlash(filepath.Join(entry.Name(), "new")), filepath.ToSlash(filepath.Join(entry.Name(), "cur")))
+		}
+	}
+	for _, mailbox := range mailboxes {
 		select {
 		case <-ctx.Done():
 			return "", ctx.Err()
@@ -209,7 +300,8 @@ func (s MaildirStore) messagePath(ctx context.Context, root, id string) (string,
 }
 
 func destinationMailbox(folder string) (string, error) {
-	switch strings.ToLower(strings.TrimSpace(folder)) {
+	name := strings.ToLower(strings.TrimSpace(folder))
+	switch name {
 	case "inbox", "":
 		return "new", nil
 	case "spam":
@@ -219,8 +311,69 @@ func destinationMailbox(folder string) (string, error) {
 	case "archive":
 		return ".Archive", nil
 	default:
-		return "", errors.New("unsupported mailbox folder")
+		return customMailboxName(folder)
 	}
+}
+
+func ensureMaildir(root string) error {
+	for _, dir := range []string{"cur", "new", "tmp"} {
+		if err := os.MkdirAll(filepath.Join(root, dir), 0750); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func customMailboxName(name string) (string, error) {
+	cleaned := strings.TrimSpace(name)
+	if cleaned == "" {
+		return "", errors.New("folder name is required")
+	}
+	if _, ok := systemFolderID(cleaned); ok {
+		return "", errors.New("system folder already exists")
+	}
+	if strings.ContainsAny(cleaned, `/\:`) || strings.Contains(cleaned, "..") {
+		return "", errors.New("folder name contains unsupported characters")
+	}
+	cleaned = strings.TrimPrefix(cleaned, ".")
+	if cleaned == "" {
+		return "", errors.New("folder name is required")
+	}
+	return "." + cleaned, nil
+}
+
+func systemFolderID(name string) (string, bool) {
+	switch strings.ToLower(strings.TrimPrefix(strings.TrimSpace(name), ".")) {
+	case "inbox":
+		return "inbox", true
+	case "spam":
+		return "spam", true
+	case "trash":
+		return "trash", true
+	case "archive":
+		return "archive", true
+	default:
+		return "", false
+	}
+}
+
+func countFolderMessages(root, folder string) (int, error) {
+	count := 0
+	for _, mailbox := range folderMailboxes(folder) {
+		entries, err := os.ReadDir(filepath.Join(root, mailbox))
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			return 0, fmt.Errorf("count folder %s: %w", folder, err)
+		}
+		for _, entry := range entries {
+			if entry.Type().IsRegular() {
+				count++
+			}
+		}
+	}
+	return count, nil
 }
 
 func parseMessageDetail(path, maildirRoot string) (MessageDetail, error) {

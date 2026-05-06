@@ -6,6 +6,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -21,6 +22,13 @@ type Store interface {
 	SendMessage(ctx context.Context, message OutboundMessage) error
 	ReportMessage(ctx context.Context, email, id, verdict string) error
 	MoveMessage(ctx context.Context, email, id, folder string) error
+	ListFolders(ctx context.Context, email string) ([]MailFolder, error)
+	CreateFolder(ctx context.Context, email, name string) (MailFolder, error)
+	DeleteFolder(ctx context.Context, email, name string) error
+	ListFilters(ctx context.Context, email string) ([]MailFilter, error)
+	CreateFilter(ctx context.Context, email string, filter MailFilter) (MailFilter, error)
+	UpdateFilter(ctx context.Context, email, id string, filter MailFilter) (MailFilter, error)
+	DeleteFilter(ctx context.Context, email, id string) error
 	ListContacts(ctx context.Context, email string) ([]Contact, error)
 	CreateContact(ctx context.Context, email string, contact Contact) (Contact, error)
 	UpdateContact(ctx context.Context, email, id string, contact Contact) (Contact, error)
@@ -43,6 +51,27 @@ type Contact struct {
 	ID    string `json:"id"`
 	Name  string `json:"name"`
 	Email string `json:"email"`
+}
+
+type MailFolder struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	System bool   `json:"system"`
+	Unread int    `json:"unread"`
+	Total  int    `json:"total"`
+}
+
+type MailFilter struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Field     string `json:"field"`
+	Operator  string `json:"operator"`
+	Value     string `json:"value"`
+	Action    string `json:"action"`
+	Folder    string `json:"folder,omitempty"`
+	Enabled   bool   `json:"enabled"`
+	CreatedAt string `json:"created_at,omitempty"`
+	UpdatedAt string `json:"updated_at,omitempty"`
 }
 
 type CalendarEvent struct {
@@ -70,6 +99,10 @@ func NewRouter(store Store, managers ...*session.Manager) http.Handler {
 	mux.HandleFunc("/api/v1/messages", h.messages)
 	mux.HandleFunc("/api/v1/messages/", h.message)
 	mux.HandleFunc("/api/v1/send", h.send)
+	mux.HandleFunc("/api/v1/folders", h.folders)
+	mux.HandleFunc("/api/v1/folders/", h.folder)
+	mux.HandleFunc("/api/v1/filters", h.filters)
+	mux.HandleFunc("/api/v1/filters/", h.filter)
 	mux.HandleFunc("/api/v1/contacts", h.contacts)
 	mux.HandleFunc("/api/v1/contacts/", h.contact)
 	mux.HandleFunc("/api/v1/calendar", h.calendar)
@@ -188,9 +221,9 @@ func (h handler) moveMessage(w http.ResponseWriter, r *http.Request, email, id s
 		writeError(w, http.StatusBadRequest, "invalid json")
 		return
 	}
-	req.Folder = strings.ToLower(strings.TrimSpace(req.Folder))
-	if req.Folder != "inbox" && req.Folder != "spam" && req.Folder != "trash" && req.Folder != "archive" {
-		writeError(w, http.StatusBadRequest, "folder must be inbox, spam, trash, or archive")
+	req.Folder = strings.TrimSpace(req.Folder)
+	if req.Folder == "" || strings.ContainsAny(req.Folder, `/\:`) || strings.Contains(req.Folder, "..") {
+		writeError(w, http.StatusBadRequest, "valid folder is required")
 		return
 	}
 	if err := h.store.MoveMessage(r.Context(), email, id, req.Folder); err != nil {
@@ -231,6 +264,149 @@ func (h handler) send(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "queued"})
+}
+
+func (h handler) folders(w http.ResponseWriter, r *http.Request) {
+	email, ok := h.authorized(w, r)
+	if !ok {
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		folders, err := h.store.ListFolders(r.Context(), email)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "list folders failed")
+			return
+		}
+		writeJSON(w, http.StatusOK, folders)
+	case http.MethodPost:
+		var req struct {
+			Name string `json:"name"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid json")
+			return
+		}
+		folder, err := h.store.CreateFolder(r.Context(), email, req.Name)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusCreated, folder)
+	default:
+		w.Header().Set("Allow", "GET, POST")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (h handler) folder(w http.ResponseWriter, r *http.Request) {
+	email, ok := h.authorized(w, r)
+	if !ok {
+		return
+	}
+	name := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/v1/folders/"), "/")
+	if decoded, err := url.PathUnescape(name); err == nil {
+		name = decoded
+	}
+	if name == "" {
+		writeError(w, http.StatusBadRequest, "folder name is required")
+		return
+	}
+	if r.Method != http.MethodDelete {
+		w.Header().Set("Allow", "DELETE")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if err := h.store.DeleteFolder(r.Context(), email, name); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h handler) filters(w http.ResponseWriter, r *http.Request) {
+	email, ok := h.authorized(w, r)
+	if !ok {
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		filters, err := h.store.ListFilters(r.Context(), email)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "list filters failed")
+			return
+		}
+		writeJSON(w, http.StatusOK, filters)
+	case http.MethodPost:
+		var req MailFilter
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid json")
+			return
+		}
+		filter, err := h.store.CreateFilter(r.Context(), email, normalizeFilter(req))
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusCreated, filter)
+	default:
+		w.Header().Set("Allow", "GET, POST")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (h handler) filter(w http.ResponseWriter, r *http.Request) {
+	email, ok := h.authorized(w, r)
+	if !ok {
+		return
+	}
+	id := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/v1/filters/"), "/")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "filter id is required")
+		return
+	}
+	switch r.Method {
+	case http.MethodPut:
+		var req MailFilter
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid json")
+			return
+		}
+		filter, err := h.store.UpdateFilter(r.Context(), email, id, normalizeFilter(req))
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, filter)
+	case http.MethodDelete:
+		if err := h.store.DeleteFilter(r.Context(), email, id); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	default:
+		w.Header().Set("Allow", "PUT, DELETE")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func normalizeFilter(filter MailFilter) MailFilter {
+	filter.Name = strings.TrimSpace(filter.Name)
+	filter.Field = strings.ToLower(strings.TrimSpace(filter.Field))
+	filter.Operator = strings.ToLower(strings.TrimSpace(filter.Operator))
+	filter.Value = strings.TrimSpace(filter.Value)
+	filter.Action = strings.ToLower(strings.TrimSpace(filter.Action))
+	filter.Folder = strings.TrimSpace(filter.Folder)
+	if filter.Field == "" {
+		filter.Field = "subject"
+	}
+	if filter.Operator == "" {
+		filter.Operator = "contains"
+	}
+	if filter.Action == "" {
+		filter.Action = "move"
+	}
+	return filter
 }
 
 func (h handler) contacts(w http.ResponseWriter, r *http.Request) {

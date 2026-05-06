@@ -300,6 +300,40 @@ const webmailIndexHTML = `<!doctype html>
     }
     .secondary-button .material-symbols-outlined, .danger-button .material-symbols-outlined { font-size: 20px; }
     .danger-button { color: var(--danger); border-color: rgba(186,26,26,.32); }
+    .editor-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid var(--outline);
+      border-bottom: 0;
+      border-radius: 8px 8px 0 0;
+      background: var(--surface-soft);
+      padding: 6px;
+    }
+    .editor {
+      width: 100%;
+      min-height: 220px;
+      max-height: 46vh;
+      overflow: auto;
+      border: 1px solid var(--outline);
+      border-radius: 0 0 8px 8px;
+      padding: 12px;
+      font: 15px/1.55 "Public Sans", system-ui, sans-serif;
+      outline: 0;
+      white-space: pre-wrap;
+    }
+    .editor:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(70,72,212,.12); }
+    .folder-tools { display: grid; gap: 8px; margin-top: 12px; }
+    .folder-tools .secondary-button { width: 100%; }
+    .pill-row { display: flex; flex-wrap: wrap; gap: 8px; }
+    select {
+      min-height: 38px;
+      border: 1px solid var(--outline);
+      border-radius: 8px;
+      padding: 8px 12px;
+      font: inherit;
+      background: white;
+    }
     .connect-box {
       border: 1px solid var(--outline);
       border-radius: 8px;
@@ -377,7 +411,7 @@ const webmailIndexHTML = `<!doctype html>
       padding: 8px 12px;
       font: inherit;
     }
-    input:focus { outline: 2px solid rgba(70,72,212,.18); border-color: var(--primary); }
+    input:focus, select:focus { outline: 2px solid rgba(70,72,212,.18); border-color: var(--primary); }
     .primary-button {
       min-height: 40px;
       border: 0;
@@ -411,17 +445,16 @@ const webmailIndexHTML = `<!doctype html>
   <div class="app">
     <aside>
       <button class="compose" type="button"><span class="material-symbols-outlined">edit</span>Compose</button>
-      <nav class="folder-list">
-        <button class="folder active" data-folder="inbox"><span><span class="material-symbols-outlined">inbox</span>Inbox</span><span class="count" id="inbox-count">0</span></button>
-        <button class="folder" data-folder="archive"><span><span class="material-symbols-outlined">archive</span>Archive</span></button>
-        <button class="folder" data-folder="trash"><span><span class="material-symbols-outlined">delete</span>Trash</span></button>
-        <button class="folder" data-folder="spam"><span><span class="material-symbols-outlined">report</span>Spam</span></button>
-      </nav>
+      <nav class="folder-list" id="folder-list"></nav>
+      <div class="folder-tools">
+        <button class="secondary-button" type="button" id="add-folder"><span class="material-symbols-outlined">create_new_folder</span>New folder</button>
+        <button class="secondary-button" type="button" id="open-filters"><span class="material-symbols-outlined">filter_alt</span>Filters</button>
+      </div>
       <div class="labels">
-        <h3>Labels</h3>
-        <div class="label"><span class="dot danger"></span>High Security</div>
-        <div class="label"><span class="dot"></span>Internal</div>
-        <div class="label"><span class="dot dark"></span>Partners</div>
+        <h3>Mail Tools</h3>
+        <div class="label"><span class="dot danger"></span>Spam training</div>
+        <div class="label"><span class="dot"></span>Custom folders</div>
+        <div class="label"><span class="dot dark"></span>Server filters</div>
       </div>
     </aside>
 
@@ -457,11 +490,11 @@ const webmailIndexHTML = `<!doctype html>
 
     <aside class="rail">
       <button class="tool-button" type="button" id="open-calendar" title="Calendar"><span class="material-symbols-outlined">calendar_month</span></button>
-      <span class="material-symbols-outlined">task_alt</span>
+      <button class="tool-button" type="button" id="open-filters-rail" title="Filters"><span class="material-symbols-outlined">filter_alt</span></button>
       <button class="tool-button" type="button" id="open-contacts" title="Contacts"><span class="material-symbols-outlined">contacts</span></button>
       <div class="bottom">
-        <span class="material-symbols-outlined">settings</span>
-        <span class="material-symbols-outlined">help</span>
+        <button class="tool-button" type="button" id="open-folders-rail" title="Folders"><span class="material-symbols-outlined">folder_managed</span></button>
+        <button class="tool-button" type="button" id="logout" title="Logout"><span class="material-symbols-outlined">logout</span></button>
       </div>
     </aside>
   </div>
@@ -480,10 +513,48 @@ const webmailIndexHTML = `<!doctype html>
   <form class="modal hidden" id="compose-modal">
     <div class="modal-head"><h2>Compose</h2><span class="material-symbols-outlined" id="close-compose">close</span></div>
     <label>To<input name="to" autocomplete="email" required></label>
+    <label>CC<input name="cc" autocomplete="email"></label>
+    <label>BCC<input name="bcc" autocomplete="email"></label>
     <label>Subject<input name="subject" required></label>
-    <label>Message<textarea name="body" required></textarea></label>
+    <label>Message
+      <div class="editor-toolbar">
+        <button class="tool-button" type="button" data-editor-command="bold" title="Bold"><span class="material-symbols-outlined">format_bold</span></button>
+        <button class="tool-button" type="button" data-editor-command="italic" title="Italic"><span class="material-symbols-outlined">format_italic</span></button>
+        <button class="tool-button" type="button" data-editor-command="insertUnorderedList" title="List"><span class="material-symbols-outlined">format_list_bulleted</span></button>
+        <button class="tool-button" type="button" data-editor-clear title="Clear formatting"><span class="material-symbols-outlined">format_clear</span></button>
+      </div>
+      <div class="editor" id="compose-editor" contenteditable="true"></div>
+      <input type="hidden" name="body">
+    </label>
     <button class="primary-button" type="submit">Send Message</button>
     <div class="error" id="compose-error"></div>
+  </form>
+
+  <form class="modal hidden" id="folder-modal">
+    <div class="modal-head"><h2>New folder</h2><button class="tool-button" type="button" id="close-folder" title="Close"><span class="material-symbols-outlined">close</span></button></div>
+    <label>Folder name<input name="name" placeholder="Projects" required></label>
+    <div class="modal-actions">
+      <button class="secondary-button" type="button" id="cancel-folder">Cancel</button>
+      <button class="primary-button" type="submit">Create Folder</button>
+    </div>
+    <div class="error" id="folder-error"></div>
+  </form>
+
+  <form class="modal hidden" id="filter-modal">
+    <div class="modal-head"><h2 id="filter-title">Mail filter</h2><button class="tool-button" type="button" id="close-filter" title="Close"><span class="material-symbols-outlined">close</span></button></div>
+    <input type="hidden" name="id">
+    <label>Name<input name="name" placeholder="Move invoices" required></label>
+    <label>Field<select name="field"><option value="from">From</option><option value="to">To</option><option value="subject" selected>Subject</option><option value="body">Body</option></select></label>
+    <label>Match<select name="operator"><option value="contains">Contains</option><option value="equals">Equals</option><option value="starts_with">Starts with</option><option value="ends_with">Ends with</option></select></label>
+    <label>Value<input name="value" placeholder="invoice" required></label>
+    <label>Action<select name="action"><option value="move">Move to folder</option><option value="mark_spam">Mark spam</option><option value="delete">Delete</option><option value="keep">Keep in inbox</option></select></label>
+    <label>Destination folder<select name="folder" id="filter-folder"></select></label>
+    <label><span><input name="enabled" type="checkbox" checked> Enabled</span></label>
+    <div class="modal-actions">
+      <button class="secondary-button" type="button" id="cancel-filter">Cancel</button>
+      <button class="primary-button" type="submit">Save Filter</button>
+    </div>
+    <div class="error" id="filter-error"></div>
   </form>
 
   <form class="modal hidden" id="contact-modal">
@@ -512,7 +583,7 @@ const webmailIndexHTML = `<!doctype html>
   </form>
 
   <script>
-    const state = { csrf: "", email: "", messages: [], selected: null, folder: "inbox", contacts: [], events: [], view: "mail" };
+    const state = { csrf: "", email: "", messages: [], selected: null, folder: "inbox", folders: [], filters: [], contacts: [], events: [], view: "mail" };
     const esc = value => String(value ?? "").replace(/[&<>"']/g, char => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[char]));
     const initials = email => String(email || "--").split("@")[0].split(/[._-]+/).filter(Boolean).slice(0, 2).map(part => part[0]).join("").toUpperCase() || "--";
     const messageTime = item => item.date ? new Date(item.date).toLocaleString([], {month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"}) : "";
@@ -543,6 +614,7 @@ const webmailIndexHTML = `<!doctype html>
     };
     async function loadMessages() {
       state.view = "mail";
+      await loadFolders();
       const response = await fetch("/api/v1/messages?limit=100&folder=" + encodeURIComponent(state.folder), { credentials: "same-origin", cache: "no-store" });
       if (!response.ok) {
         document.querySelector("#login-panel").classList.remove("hidden");
@@ -551,6 +623,19 @@ const webmailIndexHTML = `<!doctype html>
       state.messages = await response.json();
       state.selected = state.messages[0] || null;
       render();
+    }
+    async function loadFolders() {
+      try {
+        state.folders = await api("/api/v1/folders");
+      } catch {
+        state.folders = [
+          {id: "inbox", name: "Inbox", system: true, total: 0},
+          {id: "archive", name: "Archive", system: true, total: 0},
+          {id: "spam", name: "Spam", system: true, total: 0},
+          {id: "trash", name: "Trash", system: true, total: 0}
+        ];
+      }
+      renderFolders();
     }
     async function bootstrapSession() {
       const response = await fetch("/api/v1/session", {credentials: "same-origin", cache: "no-store"});
@@ -569,6 +654,102 @@ const webmailIndexHTML = `<!doctype html>
       const response = await fetch("/api/v1/messages/" + encodeURIComponent(state.selected.id) + "/move", {method: "POST", credentials: "same-origin", cache: "no-store", headers: {"Content-Type": "application/json", "X-CSRF-Token": state.csrf}, body: JSON.stringify({folder})});
       if (!response.ok) throw new Error("Move failed");
       await loadMessages();
+    }
+    function folderIcon(folder) {
+      const id = String(folder.id || "").toLowerCase();
+      if (id === "inbox") return "inbox";
+      if (id === "archive") return "archive";
+      if (id === "trash") return "delete";
+      if (id === "spam") return "report";
+      return "folder";
+    }
+    function renderFolders() {
+      const folders = state.folders.length ? state.folders : [{id: "inbox", name: "Inbox", system: true, total: state.messages.length}];
+      document.querySelector("#folder-list").innerHTML = folders.map(folder =>
+        "<button class=\"folder " + (String(folder.id) === String(state.folder) ? "active" : "") + "\" data-folder=\"" + esc(folder.id) + "\"><span><span class=\"material-symbols-outlined\">" + folderIcon(folder) + "</span>" + esc(folder.name) + "</span><span class=\"count\">" + esc(folder.total || 0) + "</span></button>"
+      ).join("");
+      document.querySelectorAll("[data-folder]").forEach(item => item.addEventListener("click", async () => {
+        state.folder = item.dataset.folder;
+        state.selected = null;
+        await loadMessages();
+      }));
+    }
+    function folderOptions(current) {
+      return state.folders.filter(folder => folder.id !== "trash").map(folder => "<option value=\"" + esc(folder.id) + "\" " + (String(folder.id) === String(current) ? "selected" : "") + ">" + esc(folder.name) + "</option>").join("");
+    }
+    async function saveFolder(event) {
+      event.preventDefault();
+      const form = event.currentTarget;
+      document.querySelector("#folder-error").textContent = "";
+      try {
+        const created = await api("/api/v1/folders", {method: "POST", body: JSON.stringify({name: form.elements.name.value.trim()})});
+        state.folder = created.id;
+        form.reset();
+        form.classList.add("hidden");
+        await loadMessages();
+      } catch (error) {
+        document.querySelector("#folder-error").textContent = error.message;
+      }
+    }
+    async function deleteFolder(name) {
+      if (!confirm("Delete folder " + name + "? Messages in it will be removed from this folder.")) return;
+      await api("/api/v1/folders/" + encodeURIComponent(name), {method: "DELETE"});
+      state.folder = "inbox";
+      await loadMessages();
+    }
+    async function loadFiltersView() {
+      state.view = "filters";
+      await loadFolders();
+      state.filters = await api("/api/v1/filters");
+      renderFiltersView();
+    }
+    function renderFiltersView() {
+      document.querySelector("#reader").innerHTML =
+        "<div class=\"workspace-head\"><div><h2>Filters</h2><div class=\"muted\">Rules saved for this mailbox. Delivery-time execution is the next mail pipeline step.</div></div><button class=\"primary-button\" id=\"add-filter\" type=\"button\">Add Filter</button></div>" +
+        "<div class=\"mini-grid\">" + (state.filters.length ? state.filters.map(item => "<div class=\"mini-row\"><div><strong>" + esc(item.name) + "</strong><div class=\"muted\">" + esc(item.field) + " " + esc(item.operator) + " \"" + esc(item.value) + "\" -> " + esc(item.action) + (item.folder ? " " + esc(item.folder) : "") + "</div></div><div class=\"compact-actions\">" + (item.enabled ? "<span class=\"tag\">ENABLED</span>" : "<span class=\"tag\">OFF</span>") + "<button class=\"secondary-button\" data-edit-filter=\"" + esc(item.id) + "\"><span class=\"material-symbols-outlined\">edit</span>Edit</button><button class=\"danger-button\" data-delete-filter=\"" + esc(item.id) + "\"><span class=\"material-symbols-outlined\">delete</span>Delete</button></div></div>").join("") : "<div class=\"mini-row\"><div><strong>No filters yet</strong><div class=\"muted\">Create rules for sender, recipient, subject, or body matching.</div></div></div>") + "</div>";
+      document.querySelector("#add-filter").addEventListener("click", () => openFilterModal());
+    }
+    function openFilterModal(filter = {}) {
+      const form = document.querySelector("#filter-modal");
+      form.reset();
+      form.elements.id.value = filter.id || "";
+      form.elements.name.value = filter.name || "";
+      form.elements.field.value = filter.field || "subject";
+      form.elements.operator.value = filter.operator || "contains";
+      form.elements.value.value = filter.value || "";
+      form.elements.action.value = filter.action || "move";
+      document.querySelector("#filter-folder").innerHTML = folderOptions(filter.folder || state.folder || "inbox");
+      form.elements.folder.value = filter.folder || state.folder || "inbox";
+      form.elements.enabled.checked = filter.enabled !== false;
+      document.querySelector("#filter-title").textContent = filter.id ? "Edit Filter" : "Add Filter";
+      document.querySelector("#filter-error").textContent = "";
+      form.classList.remove("hidden");
+    }
+    async function saveFilter(event) {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const id = form.elements.id.value;
+      const payload = {
+        name: form.elements.name.value.trim(),
+        field: form.elements.field.value,
+        operator: form.elements.operator.value,
+        value: form.elements.value.value.trim(),
+        action: form.elements.action.value,
+        folder: form.elements.folder.value,
+        enabled: form.elements.enabled.checked
+      };
+      try {
+        if (id) await api("/api/v1/filters/" + encodeURIComponent(id), {method: "PUT", body: JSON.stringify(payload)});
+        else await api("/api/v1/filters", {method: "POST", body: JSON.stringify(payload)});
+        form.classList.add("hidden");
+        await loadFiltersView();
+      } catch (error) {
+        document.querySelector("#filter-error").textContent = error.message;
+      }
+    }
+    async function deleteFilter(id) {
+      await api("/api/v1/filters/" + encodeURIComponent(id), {method: "DELETE"});
+      await loadFiltersView();
     }
     async function loadContactsView() {
       state.view = "contacts";
@@ -673,11 +854,11 @@ const webmailIndexHTML = `<!doctype html>
       if (mode === "forward") {
         form.elements.to.value = "";
         form.elements.subject.value = prefixedSubject("Fwd: ", item.subject || state.selected.subject || "");
-        form.elements.body.value = "\n\nForwarded message\nFrom: " + (item.from || state.selected.from || "") + "\nTo: " + (item.to || state.selected.to || state.email || "") + "\n\n" + originalBody;
+        document.querySelector("#compose-editor").innerText = "\n\nForwarded message\nFrom: " + (item.from || state.selected.from || "") + "\nTo: " + (item.to || state.selected.to || state.email || "") + "\n\n" + originalBody;
       } else {
         form.elements.to.value = sender;
         form.elements.subject.value = prefixedSubject("Re: ", item.subject || state.selected.subject || "");
-        form.elements.body.value = "\n\nOn " + messageTime(item) + ", " + (item.from || sender) + " wrote:\n" + originalBody.split("\n").map(line => "> " + line).join("\n");
+        document.querySelector("#compose-editor").innerText = "\n\nOn " + messageTime(item) + ", " + (item.from || sender) + " wrote:\n" + originalBody.split("\n").map(line => "> " + line).join("\n");
       }
       document.querySelector("#compose-error").textContent = "";
       form.classList.remove("hidden");
@@ -690,9 +871,8 @@ const webmailIndexHTML = `<!doctype html>
     function render() {
       if (state.view !== "mail") return;
       document.querySelector("#avatar").textContent = initials(state.email);
-      document.querySelector("#inbox-count").textContent = state.messages.length;
       document.querySelector(".pane-head h2").textContent = state.folder.charAt(0).toUpperCase() + state.folder.slice(1);
-      document.querySelectorAll("[data-folder]").forEach(item => item.classList.toggle("active", item.dataset.folder === state.folder));
+      renderFolders();
       const list = filteredMessages();
       document.querySelector("#messages").innerHTML = list.map((item, index) => {
         const active = state.selected && state.selected.id === item.id ? " active" : "";
@@ -735,6 +915,7 @@ const webmailIndexHTML = `<!doctype html>
     document.querySelector(".compose").addEventListener("click", () => {
       const form = document.querySelector("#compose-modal");
       form.reset();
+      document.querySelector("#compose-editor").innerHTML = "";
       document.querySelector("#compose-error").textContent = "";
       form.classList.remove("hidden");
     });
@@ -742,21 +923,38 @@ const webmailIndexHTML = `<!doctype html>
     document.querySelector("#close-contact").addEventListener("click", () => document.querySelector("#contact-modal").classList.add("hidden"));
     document.querySelector("#cancel-contact").addEventListener("click", () => document.querySelector("#contact-modal").classList.add("hidden"));
     document.querySelector("#contact-modal").addEventListener("submit", saveContact);
+    document.querySelector("#add-folder").addEventListener("click", () => document.querySelector("#folder-modal").classList.remove("hidden"));
+    document.querySelector("#close-folder").addEventListener("click", () => document.querySelector("#folder-modal").classList.add("hidden"));
+    document.querySelector("#cancel-folder").addEventListener("click", () => document.querySelector("#folder-modal").classList.add("hidden"));
+    document.querySelector("#folder-modal").addEventListener("submit", saveFolder);
+    document.querySelector("#open-filters").addEventListener("click", () => loadFiltersView().catch(error => alert(error.message)));
+    document.querySelector("#open-filters-rail").addEventListener("click", () => loadFiltersView().catch(error => alert(error.message)));
+    document.querySelector("#open-folders-rail").addEventListener("click", () => {
+      state.view = "folders";
+      document.querySelector("#reader").innerHTML = "<div class=\"workspace-head\"><div><h2>Folders</h2><div class=\"muted\">Create custom folders and open them from the left rail.</div></div><button class=\"primary-button\" id=\"add-folder-inline\" type=\"button\">New Folder</button></div><div class=\"mini-grid\">" + state.folders.map(folder => "<div class=\"mini-row\"><div><strong>" + esc(folder.name) + "</strong><div class=\"muted\">" + esc(folder.total || 0) + " messages</div></div><div class=\"compact-actions\"><button class=\"secondary-button\" data-open-folder=\"" + esc(folder.id) + "\"><span class=\"material-symbols-outlined\">folder_open</span>Open</button>" + (folder.system ? "" : "<button class=\"danger-button\" data-delete-folder=\"" + esc(folder.id) + "\"><span class=\"material-symbols-outlined\">delete</span>Delete</button>") + "</div></div>").join("") + "</div>";
+      document.querySelector("#add-folder-inline").addEventListener("click", () => document.querySelector("#folder-modal").classList.remove("hidden"));
+    });
+    document.querySelector("#close-filter").addEventListener("click", () => document.querySelector("#filter-modal").classList.add("hidden"));
+    document.querySelector("#cancel-filter").addEventListener("click", () => document.querySelector("#filter-modal").classList.add("hidden"));
+    document.querySelector("#filter-modal").addEventListener("submit", saveFilter);
     document.querySelector("#close-event").addEventListener("click", () => document.querySelector("#event-modal").classList.add("hidden"));
     document.querySelector("#cancel-event").addEventListener("click", () => document.querySelector("#event-modal").classList.add("hidden"));
     document.querySelector("#event-modal").addEventListener("submit", saveEvent);
     document.querySelector("#compose-modal").addEventListener("submit", async event => {
       event.preventDefault();
       const form = event.currentTarget;
-      const data = new FormData(event.currentTarget);
       document.querySelector("#compose-error").textContent = "";
-      const payload = {to: String(data.get("to") || "").split(",").map(item => item.trim()).filter(Boolean), subject: String(data.get("subject") || ""), body: String(data.get("body") || "")};
+      form.elements.body.value = document.querySelector("#compose-editor").innerText.trim();
+      const data = new FormData(event.currentTarget);
+      const recipients = [data.get("to"), data.get("cc"), data.get("bcc")].flatMap(value => String(value || "").split(",").map(item => item.trim()).filter(Boolean));
+      const payload = {to: recipients, subject: String(data.get("subject") || ""), body: String(data.get("body") || "")};
       const response = await fetch("/api/v1/send", {method: "POST", credentials: "same-origin", cache: "no-store", headers: {"Content-Type": "application/json", "X-CSRF-Token": state.csrf}, body: JSON.stringify(payload)});
       if (!response.ok) {
         document.querySelector("#compose-error").textContent = "Send failed";
         return;
       }
       form.reset();
+      document.querySelector("#compose-editor").innerHTML = "";
       document.querySelector("#compose-modal").classList.add("hidden");
       await loadMessages();
     });
@@ -770,11 +968,19 @@ const webmailIndexHTML = `<!doctype html>
     document.querySelector("#forward-message").addEventListener("click", () => openResponse("forward").catch(error => alert(error.message)));
     document.querySelector("#open-contacts").addEventListener("click", () => loadContactsView().catch(error => alert(error.message)));
     document.querySelector("#open-calendar").addEventListener("click", () => loadCalendarView().catch(error => alert(error.message)));
-    document.querySelectorAll("[data-folder]").forEach(item => item.addEventListener("click", async () => {
-      state.folder = item.dataset.folder;
-      state.selected = null;
-      await loadMessages();
+    document.querySelector("#logout").addEventListener("click", async () => {
+      await api("/api/v1/session", {method: "DELETE"});
+      state.csrf = "";
+      document.querySelector("#login-panel").classList.remove("hidden");
+    });
+    document.querySelectorAll("[data-editor-command]").forEach(button => button.addEventListener("click", () => {
+      document.querySelector("#compose-editor").focus();
+      document.execCommand(button.dataset.editorCommand, false, null);
     }));
+    document.querySelector("[data-editor-clear]").addEventListener("click", () => {
+      document.querySelector("#compose-editor").focus();
+      document.execCommand("removeFormat", false, null);
+    });
     document.querySelector("#search").addEventListener("input", render);
     document.addEventListener("click", event => {
       const editContact = event.target.closest("[data-edit-contact]");
@@ -795,6 +1001,27 @@ const webmailIndexHTML = `<!doctype html>
       const deleteEventButton = event.target.closest("[data-delete-event]");
       if (deleteEventButton) {
         deleteEvent(deleteEventButton.dataset.deleteEvent).catch(error => alert(error.message));
+        return;
+      }
+      const editFilter = event.target.closest("[data-edit-filter]");
+      if (editFilter) {
+        openFilterModal(state.filters.find(item => item.id === editFilter.dataset.editFilter) || {});
+        return;
+      }
+      const deleteFilterButton = event.target.closest("[data-delete-filter]");
+      if (deleteFilterButton) {
+        deleteFilter(deleteFilterButton.dataset.deleteFilter).catch(error => alert(error.message));
+        return;
+      }
+      const openFolder = event.target.closest("[data-open-folder]");
+      if (openFolder) {
+        state.folder = openFolder.dataset.openFolder;
+        loadMessages().catch(error => alert(error.message));
+        return;
+      }
+      const deleteFolderButton = event.target.closest("[data-delete-folder]");
+      if (deleteFolderButton) {
+        deleteFolder(deleteFolderButton.dataset.deleteFolder).catch(error => alert(error.message));
         return;
       }
       const button = event.target.closest("[data-id]");

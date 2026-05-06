@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -153,6 +154,129 @@ func (s SQLAuthStore) DeleteContact(ctx context.Context, email, id string) error
 	}
 	if affected == 0 {
 		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (s SQLAuthStore) ListFilters(ctx context.Context, email string) ([]MailFilter, error) {
+	_, userID, err := s.userIDs(ctx, email)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, name, field, operator, value, action, COALESCE(folder, ''), enabled, created_at, updated_at
+		FROM mail_filters
+		WHERE user_id = ?
+		ORDER BY enabled DESC, name`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	filters := make([]MailFilter, 0)
+	for rows.Next() {
+		var filter MailFilter
+		var createdAt time.Time
+		var updatedAt time.Time
+		if err := rows.Scan(&filter.ID, &filter.Name, &filter.Field, &filter.Operator, &filter.Value, &filter.Action, &filter.Folder, &filter.Enabled, &createdAt, &updatedAt); err != nil {
+			return nil, err
+		}
+		filter.CreatedAt = createdAt.Format(time.RFC3339)
+		filter.UpdatedAt = updatedAt.Format(time.RFC3339)
+		filters = append(filters, filter)
+	}
+	return filters, rows.Err()
+}
+
+func (s SQLAuthStore) CreateFilter(ctx context.Context, email string, filter MailFilter) (MailFilter, error) {
+	if err := validateFilter(filter); err != nil {
+		return MailFilter{}, err
+	}
+	tenantID, userID, err := s.userIDs(ctx, email)
+	if err != nil {
+		return MailFilter{}, err
+	}
+	result, err := s.db.ExecContext(ctx, `
+		INSERT INTO mail_filters(tenant_id, user_id, name, field, operator, value, action, folder, enabled)
+		VALUES (?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?)`,
+		tenantID, userID, filter.Name, filter.Field, filter.Operator, filter.Value, filter.Action, filter.Folder, filter.Enabled)
+	if err != nil {
+		return MailFilter{}, err
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		return MailFilter{}, err
+	}
+	filter.ID = fmt.Sprintf("%d", id)
+	return filter, nil
+}
+
+func (s SQLAuthStore) UpdateFilter(ctx context.Context, email, id string, filter MailFilter) (MailFilter, error) {
+	if err := validateFilter(filter); err != nil {
+		return MailFilter{}, err
+	}
+	_, userID, err := s.userIDs(ctx, email)
+	if err != nil {
+		return MailFilter{}, err
+	}
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE mail_filters
+		SET name = ?, field = ?, operator = ?, value = ?, action = ?, folder = NULLIF(?, ''), enabled = ?
+		WHERE id = ? AND user_id = ?`,
+		filter.Name, filter.Field, filter.Operator, filter.Value, filter.Action, filter.Folder, filter.Enabled, id, userID)
+	if err != nil {
+		return MailFilter{}, err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return MailFilter{}, err
+	}
+	if affected == 0 {
+		return MailFilter{}, sql.ErrNoRows
+	}
+	filter.ID = id
+	return filter, nil
+}
+
+func (s SQLAuthStore) DeleteFilter(ctx context.Context, email, id string) error {
+	_, userID, err := s.userIDs(ctx, email)
+	if err != nil {
+		return err
+	}
+	result, err := s.db.ExecContext(ctx, `DELETE FROM mail_filters WHERE id = ? AND user_id = ?`, id, userID)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func validateFilter(filter MailFilter) error {
+	if strings.TrimSpace(filter.Name) == "" || strings.TrimSpace(filter.Value) == "" {
+		return errors.New("filter name and value are required")
+	}
+	switch filter.Field {
+	case "from", "to", "subject", "body":
+	default:
+		return errors.New("filter field must be from, to, subject, or body")
+	}
+	switch filter.Operator {
+	case "contains", "equals", "starts_with", "ends_with":
+	default:
+		return errors.New("filter operator must be contains, equals, starts_with, or ends_with")
+	}
+	switch filter.Action {
+	case "move", "mark_spam", "delete", "keep":
+	default:
+		return errors.New("filter action must be move, mark_spam, delete, or keep")
+	}
+	if filter.Action == "move" && strings.TrimSpace(filter.Folder) == "" {
+		return errors.New("move filters require a destination folder")
 	}
 	return nil
 }
@@ -367,6 +491,54 @@ func (s CompositeStore) ReportMessage(ctx context.Context, email, id, verdict st
 
 func (s CompositeStore) MoveMessage(ctx context.Context, email, id, folder string) error {
 	return s.Mailbox.MoveMessage(ctx, email, id, folder)
+}
+
+func (s CompositeStore) ListFolders(ctx context.Context, email string) ([]MailFolder, error) {
+	return s.Mailbox.ListFolders(ctx, email)
+}
+
+func (s CompositeStore) CreateFolder(ctx context.Context, email, name string) (MailFolder, error) {
+	return s.Mailbox.CreateFolder(ctx, email, name)
+}
+
+func (s CompositeStore) DeleteFolder(ctx context.Context, email, name string) error {
+	return s.Mailbox.DeleteFolder(ctx, email, name)
+}
+
+func (s CompositeStore) ListFilters(ctx context.Context, email string) ([]MailFilter, error) {
+	if store, ok := s.Auth.(interface {
+		ListFilters(context.Context, string) ([]MailFilter, error)
+	}); ok {
+		return store.ListFilters(ctx, email)
+	}
+	return nil, sql.ErrNoRows
+}
+
+func (s CompositeStore) CreateFilter(ctx context.Context, email string, filter MailFilter) (MailFilter, error) {
+	if store, ok := s.Auth.(interface {
+		CreateFilter(context.Context, string, MailFilter) (MailFilter, error)
+	}); ok {
+		return store.CreateFilter(ctx, email, filter)
+	}
+	return MailFilter{}, sql.ErrNoRows
+}
+
+func (s CompositeStore) UpdateFilter(ctx context.Context, email, id string, filter MailFilter) (MailFilter, error) {
+	if store, ok := s.Auth.(interface {
+		UpdateFilter(context.Context, string, string, MailFilter) (MailFilter, error)
+	}); ok {
+		return store.UpdateFilter(ctx, email, id, filter)
+	}
+	return MailFilter{}, sql.ErrNoRows
+}
+
+func (s CompositeStore) DeleteFilter(ctx context.Context, email, id string) error {
+	if store, ok := s.Auth.(interface {
+		DeleteFilter(context.Context, string, string) error
+	}); ok {
+		return store.DeleteFilter(ctx, email, id)
+	}
+	return sql.ErrNoRows
 }
 
 func (s CompositeStore) ListContacts(ctx context.Context, email string) ([]Contact, error) {
