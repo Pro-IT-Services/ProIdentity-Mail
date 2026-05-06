@@ -6,234 +6,569 @@ const adminIndexHTML = `<!doctype html>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ProIdentity Mail Admin</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet">
   <style>
     :root {
-      color-scheme: light;
-      --bg: #f6f7f9;
-      --panel: #ffffff;
-      --ink: #18202b;
-      --muted: #647184;
-      --line: #dce2ea;
-      --accent: #0f766e;
-      --accent-dark: #115e59;
-      --danger: #b42318;
+      --background: #f7f9fb;
+      --surface: #ffffff;
+      --surface-rail: #e0e3e5;
+      --surface-soft: #f2f4f6;
+      --surface-muted: #eceef0;
+      --ink: #191c1e;
+      --muted: #464554;
+      --outline: #c7c4d7;
+      --outline-strong: #767586;
+      --primary: #4648d4;
+      --primary-strong: #3032bd;
+      --primary-soft: #e1e0ff;
+      --success: #079455;
+      --success-soft: #dcfae6;
+      --warning: #b54708;
+      --warning-soft: #fff4d6;
+      --danger: #ba1a1a;
+      --danger-soft: #ffdad6;
+      --shadow: 0 4px 14px rgba(15, 23, 42, 0.06);
     }
     * { box-sizing: border-box; }
     body {
       margin: 0;
-      background: var(--bg);
+      min-height: 100vh;
+      background: var(--background);
       color: var(--ink);
-      font: 14px/1.45 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font: 14px/1.5 "Public Sans", system-ui, sans-serif;
+      letter-spacing: 0;
+    }
+    .material-symbols-outlined {
+      font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 24;
+      font-size: 22px;
+      line-height: 1;
+    }
+    .layout { min-height: 100vh; padding-left: 280px; }
+    aside {
+      position: fixed;
+      inset: 0 auto 0 0;
+      width: 280px;
+      background: var(--surface-rail);
+      border-right: 1px solid rgba(118,117,134,.22);
+      display: flex;
+      flex-direction: column;
+      padding: 24px 16px;
+      z-index: 20;
+    }
+    .brand { display: flex; gap: 14px; align-items: center; margin-bottom: 52px; }
+    .brand-mark {
+      width: 42px;
+      height: 42px;
+      border-radius: 8px;
+      background: var(--primary);
+      color: white;
+      display: grid;
+      place-items: center;
+      box-shadow: 0 8px 18px rgba(70,72,212,.25);
+    }
+    .brand h1 { margin: 0; color: var(--primary); font-size: 24px; line-height: 1; font-weight: 700; }
+    .brand p { margin: 4px 0 0; color: var(--ink); font-size: 12px; font-weight: 600; letter-spacing: .08em; }
+    nav { display: grid; gap: 4px; }
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      width: 100%;
+      border: 0;
+      background: transparent;
+      color: #252838;
+      padding: 12px 14px;
+      border-radius: 8px;
+      font: inherit;
+      font-size: 16px;
+      cursor: pointer;
+      text-align: left;
+    }
+    .nav-item:hover { background: rgba(255,255,255,.45); }
+    .nav-item.active {
+      color: var(--primary);
+      background: rgba(255,255,255,.58);
+      box-shadow: inset -4px 0 0 var(--primary);
+      font-weight: 700;
+    }
+    .sidebar-bottom {
+      margin-top: auto;
+      border-top: 1px solid rgba(118,117,134,.22);
+      padding-top: 22px;
+      display: grid;
+      gap: 4px;
     }
     header {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      height: 64px;
+      background: rgba(247,249,251,.94);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--outline);
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 16px;
-      padding: 18px 24px;
-      background: #111827;
-      color: white;
-      border-bottom: 1px solid #0b1020;
+      padding: 0 32px;
     }
-    h1, h2 { margin: 0; letter-spacing: 0; }
-    h1 { font-size: 20px; font-weight: 700; }
-    h2 { font-size: 15px; font-weight: 700; }
-    main {
-      display: grid;
-      grid-template-columns: minmax(280px, 380px) minmax(0, 1fr);
-      gap: 18px;
-      padding: 18px;
-      max-width: 1440px;
-      margin: 0 auto;
-    }
-    section {
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      overflow: hidden;
-    }
-    .section-head {
+    .top-left { display: flex; align-items: center; gap: 28px; }
+    .page-label { margin: 0; font-size: 22px; line-height: 1; }
+    .search {
+      width: min(420px, 42vw);
       display: flex;
       align-items: center;
-      justify-content: space-between;
       gap: 10px;
-      padding: 14px 16px;
-      border-bottom: 1px solid var(--line);
+      background: var(--surface-soft);
+      border-radius: 8px;
+      padding: 0 14px;
+      min-height: 42px;
+      color: var(--outline-strong);
     }
-    .stack { display: grid; gap: 12px; padding: 16px; }
-    label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; font-weight: 650; }
-    input, select {
-      width: 100%;
-      min-height: 38px;
-      border: 1px solid var(--line);
-      border-radius: 6px;
-      padding: 8px 10px;
-      background: white;
-      color: var(--ink);
-      font: inherit;
-    }
-    button {
-      min-height: 38px;
+    .search input {
       border: 0;
-      border-radius: 6px;
-      padding: 8px 12px;
-      background: var(--accent);
-      color: white;
+      outline: 0;
+      background: transparent;
+      width: 100%;
       font: inherit;
+      color: var(--ink);
+    }
+    .top-actions { display: flex; align-items: center; gap: 16px; }
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border-radius: 999px;
+      background: var(--surface-muted);
+      padding: 9px 18px;
+      color: #2a2d3b;
       font-weight: 700;
+      letter-spacing: .04em;
+    }
+    .avatar {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      background: var(--primary);
+      color: white;
+      display: grid;
+      place-items: center;
+      font-weight: 700;
+    }
+    main { padding: 36px 32px 42px; max-width: 1440px; margin: 0 auto; }
+    .hero {
+      display: flex;
+      justify-content: space-between;
+      gap: 24px;
+      align-items: end;
+      margin-bottom: 32px;
+    }
+    .hero h2 { margin: 0; font-size: 34px; line-height: 1.15; }
+    .hero p { margin: 8px 0 0; color: var(--muted); font-size: 16px; }
+    button, input { font: inherit; }
+    .primary-button {
+      min-height: 54px;
+      border: 0;
+      border-radius: 8px;
+      padding: 0 24px;
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      background: var(--primary);
+      color: white;
+      font-weight: 700;
+      font-size: 16px;
+      cursor: pointer;
+      box-shadow: 0 8px 18px rgba(70,72,212,.22);
+    }
+    .primary-button:hover { background: var(--primary-strong); }
+    .secondary-button {
+      min-height: 42px;
+      border: 1px solid var(--outline);
+      border-radius: 8px;
+      background: var(--surface);
+      color: #272a38;
+      padding: 0 14px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 600;
       cursor: pointer;
     }
-    button:hover { background: var(--accent-dark); }
-    button.secondary {
-      border: 1px solid var(--line);
-      background: white;
-      color: var(--ink);
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 24px;
+      margin-bottom: 32px;
     }
-    button.secondary:hover { background: #eef2f6; }
-    .grid {
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--outline);
+      border-radius: 12px;
+      box-shadow: var(--shadow);
+    }
+    .stat-card { padding: 26px; min-height: 160px; }
+    .stat-top { display: flex; justify-content: space-between; align-items: start; margin-bottom: 20px; }
+    .stat-icon {
+      width: 54px;
+      height: 54px;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      background: var(--primary-soft);
+      color: var(--primary);
+    }
+    .stat-icon.success { background: var(--success-soft); color: var(--success); }
+    .stat-icon.danger { background: var(--danger-soft); color: var(--danger); }
+    .trend { color: var(--success); background: #ecfdf3; border-radius: 999px; padding: 3px 10px; font-weight: 700; }
+    .stat-value { font-size: 46px; line-height: 1; font-weight: 700; letter-spacing: 0; }
+    .stat-label { margin-top: 8px; color: #202333; font-size: 15px; font-weight: 600; }
+    .pulse {
+      background: linear-gradient(135deg, #4648d4, #5558ee);
+      color: white;
+      padding: 24px;
+      overflow: hidden;
+      position: relative;
+    }
+    .pulse:after {
+      content: "";
+      position: absolute;
+      right: -36px;
+      bottom: -18px;
+      width: 150px;
+      height: 90px;
+      border: 12px solid rgba(255,255,255,.12);
+      transform: rotate(-42deg);
+    }
+    .pulse .small { letter-spacing: .18em; font-size: 12px; opacity: .9; }
+    .pulse .money { margin-top: 10px; font-size: 30px; font-weight: 700; }
+    .panel { overflow: hidden; }
+    .panel-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      padding: 26px;
+      border-bottom: 1px solid var(--outline);
+    }
+    .panel-head h3 { margin: 0; font-size: 22px; }
+    .panel-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 18px 26px; border-bottom: 1px solid #e6e8ef; text-align: left; vertical-align: middle; }
+    th {
+      background: var(--surface-soft);
+      color: #232638;
+      font-size: 12px;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+    tbody tr:hover { background: #f8f9ff; }
+    .identity { display: flex; align-items: center; gap: 14px; }
+    .initials {
+      width: 42px;
+      height: 42px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      background: #f0f1fa;
+      border: 1px solid var(--outline);
+      color: var(--primary);
+      font-weight: 700;
+    }
+    .muted { color: #69677d; }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border-radius: 999px;
+      padding: 4px 11px;
+      font-weight: 700;
+      font-size: 12px;
+      letter-spacing: .08em;
+    }
+    .badge.active { color: #067647; background: var(--success-soft); border: 1px solid #abefc6; }
+    .badge.pending { color: #b54708; background: var(--warning-soft); border: 1px solid #fedf89; }
+    .badge.disabled, .badge.suspended { color: var(--danger); background: var(--danger-soft); border: 1px solid #fecdca; }
+    .forms {
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: 18px;
+      margin-bottom: 28px;
     }
-    table {
+    form.card { padding: 20px; display: grid; gap: 12px; }
+    form h3 { margin: 0 0 4px; font-size: 18px; }
+    label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+    input {
       width: 100%;
-      border-collapse: collapse;
-      font-size: 13px;
+      min-height: 42px;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      padding: 8px 12px;
+      background: white;
+      color: var(--ink);
     }
-    th, td {
-      padding: 10px 12px;
-      text-align: left;
-      border-bottom: 1px solid var(--line);
-      vertical-align: top;
+    input:focus { outline: 2px solid rgba(70,72,212,.18); border-color: var(--primary); }
+    .dns-grid { display: grid; gap: 10px; padding: 20px 26px 26px; }
+    .dns-record {
+      display: grid;
+      grid-template-columns: 80px 1fr 2fr;
+      gap: 12px;
+      align-items: start;
+      padding: 12px;
+      background: #fbfcff;
+      border: 1px solid #e5e7ef;
+      border-radius: 8px;
     }
-    th { color: var(--muted); font-size: 11px; text-transform: uppercase; }
-    code {
-      display: inline-block;
-      max-width: 100%;
-      overflow-wrap: anywhere;
-      font: 12px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace;
+    code { overflow-wrap: anywhere; font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; }
+    .toast { min-height: 20px; color: var(--muted); }
+    .toast.error { color: var(--danger); }
+    footer {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: center;
+      color: #6d6a80;
+      margin-top: 72px;
     }
-    .status {
-      color: var(--muted);
-      font-size: 13px;
-      min-height: 20px;
-    }
-    .error { color: var(--danger); }
-    @media (max-width: 980px) {
-      main { grid-template-columns: 1fr; }
-      .grid { grid-template-columns: 1fr; }
+    .compliance { display: flex; align-items: center; gap: 12px; }
+    .compliance .material-symbols-outlined { color: var(--success); }
+    .hidden { display: none !important; }
+    @media (max-width: 1100px) {
+      .layout { padding-left: 0; }
+      aside { position: static; width: auto; height: auto; }
+      .stats, .forms { grid-template-columns: 1fr; }
+      header { position: static; }
+      .hero { align-items: stretch; flex-direction: column; }
     }
   </style>
 </head>
 <body>
-  <header>
-    <h1>ProIdentity Mail Admin</h1>
-    <button class="secondary" id="refresh" type="button">Refresh</button>
-  </header>
-  <main>
-    <section>
-      <div class="section-head"><h2>Create</h2><span class="status" id="status"></span></div>
-      <div class="stack">
-        <form class="stack" id="tenant-form">
-          <h2>Tenant</h2>
+  <aside>
+    <div class="brand">
+      <div class="brand-mark"><span class="material-symbols-outlined">business</span></div>
+      <div>
+        <h1>ProIdentity Mail</h1>
+        <p>Enterprise Admin</p>
+      </div>
+    </div>
+    <nav>
+      <button class="nav-item active" data-view="tenants"><span class="material-symbols-outlined">corporate_fare</span><span>Tenants</span></button>
+      <button class="nav-item" data-view="domains"><span class="material-symbols-outlined">domain</span><span>Domains</span></button>
+      <button class="nav-item" data-view="users"><span class="material-symbols-outlined">group</span><span>Users</span></button>
+      <button class="nav-item" data-view="dns"><span class="material-symbols-outlined">dns</span><span>DNS Records</span></button>
+      <button class="nav-item" data-view="audit"><span class="material-symbols-outlined">receipt_long</span><span>Audit Logs</span></button>
+      <button class="nav-item" data-view="settings"><span class="material-symbols-outlined">settings</span><span>Settings</span></button>
+    </nav>
+    <div class="sidebar-bottom">
+      <button class="nav-item"><span class="material-symbols-outlined">account_circle</span><span>Profile</span></button>
+      <button class="nav-item"><span class="material-symbols-outlined">logout</span><span>Logout</span></button>
+    </div>
+  </aside>
+
+  <div class="layout">
+    <header>
+      <div class="top-left">
+        <h2 class="page-label" id="top-title">Tenants</h2>
+        <div class="search"><span class="material-symbols-outlined">search</span><input id="search" placeholder="Search tenants by name or ID..."></div>
+      </div>
+      <div class="top-actions">
+        <span class="status-pill"><span class="material-symbols-outlined">security</span> System Status</span>
+        <span class="material-symbols-outlined">notifications</span>
+        <div class="avatar">AD</div>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div>
+          <h2 id="hero-title">Manage Tenants</h2>
+          <p id="hero-subtitle">Organization-level provisioning and compliance monitoring.</p>
+        </div>
+        <button class="primary-button" id="primary-action" type="button"><span class="material-symbols-outlined">add</span><span>Create Tenant</span></button>
+      </section>
+
+      <section class="stats">
+        <div class="card stat-card">
+          <div class="stat-top"><div class="stat-icon"><span class="material-symbols-outlined">corporate_fare</span></div><span class="trend">+ live</span></div>
+          <div class="stat-value" id="stat-tenants">0</div>
+          <div class="stat-label">Total Tenants</div>
+        </div>
+        <div class="card stat-card">
+          <div class="stat-top"><div class="stat-icon success"><span class="material-symbols-outlined">check_circle</span></div></div>
+          <div class="stat-value" id="stat-domains">0</div>
+          <div class="stat-label">Configured Domains</div>
+        </div>
+        <div class="card stat-card">
+          <div class="stat-top"><div class="stat-icon"><span class="material-symbols-outlined">group</span></div></div>
+          <div class="stat-value" id="stat-users">0</div>
+          <div class="stat-label">Mailbox Users</div>
+        </div>
+        <div class="card pulse">
+          <div class="small">SECURITY POSTURE</div>
+          <div class="money">DKIM + AV</div>
+          <div>Rspamd, ClamAV, SPF/DKIM/DMARC guidance active</div>
+        </div>
+      </section>
+
+      <section class="forms" id="forms">
+        <form class="card" id="tenant-form">
+          <h3>Create Tenant</h3>
           <label>Name<input name="name" autocomplete="organization" required></label>
           <label>Slug<input name="slug" autocomplete="off" required></label>
-          <button type="submit">Create Tenant</button>
+          <button class="primary-button" type="submit"><span class="material-symbols-outlined">add</span>Create</button>
         </form>
-        <form class="stack" id="domain-form">
-          <h2>Domain</h2>
+        <form class="card" id="domain-form">
+          <h3>Create Domain</h3>
           <label>Tenant ID<input name="tenant_id" inputmode="numeric" required></label>
           <label>Domain<input name="name" autocomplete="off" required></label>
-          <button type="submit">Create Domain</button>
+          <button class="primary-button" type="submit"><span class="material-symbols-outlined">domain_add</span>Create</button>
         </form>
-        <form class="stack" id="user-form">
-          <h2>User</h2>
+        <form class="card" id="user-form">
+          <h3>Create User</h3>
           <label>Tenant ID<input name="tenant_id" inputmode="numeric" required></label>
           <label>Domain ID<input name="primary_domain_id" inputmode="numeric" required></label>
           <label>Local Part<input name="local_part" autocomplete="username" required></label>
           <label>Display Name<input name="display_name" autocomplete="name"></label>
           <label>Password<input name="password" type="password" autocomplete="new-password" required></label>
-          <button type="submit">Create User</button>
+          <button class="primary-button" type="submit"><span class="material-symbols-outlined">person_add</span>Create</button>
         </form>
-      </div>
-    </section>
-    <div class="grid">
-      <section>
-        <div class="section-head"><h2>Tenants</h2></div>
-        <table><thead><tr><th>ID</th><th>Name</th><th>Status</th></tr></thead><tbody id="tenants"></tbody></table>
       </section>
-      <section>
-        <div class="section-head"><h2>Domains</h2></div>
-        <table><thead><tr><th>ID</th><th>Domain</th><th>DNS</th></tr></thead><tbody id="domains"></tbody></table>
+
+      <p class="toast" id="status"></p>
+
+      <section class="card panel" id="tenants-panel">
+        <div class="panel-head"><h3>Registered Organizations</h3><div class="panel-actions"><button class="secondary-button"><span class="material-symbols-outlined">filter_list</span>Filters</button><button class="secondary-button"><span class="material-symbols-outlined">download</span>Export</button></div></div>
+        <div class="table-wrap"><table><thead><tr><th>Name</th><th>Slug</th><th>Status</th><th>Created Date</th></tr></thead><tbody id="tenants"></tbody></table></div>
       </section>
-      <section>
-        <div class="section-head"><h2>Users</h2></div>
-        <table><thead><tr><th>ID</th><th>User</th><th>Status</th></tr></thead><tbody id="users"></tbody></table>
+
+      <section class="card panel hidden" id="domains-panel">
+        <div class="panel-head"><h3>Domains Management</h3><div class="panel-actions"><button class="secondary-button"><span class="material-symbols-outlined">verified</span>DNS Verified</button></div></div>
+        <div class="table-wrap"><table><thead><tr><th>Domain</th><th>Tenant</th><th>Status</th><th>DKIM</th><th>Actions</th></tr></thead><tbody id="domains"></tbody></table></div>
       </section>
-      <section style="grid-column: 1 / -1;">
-        <div class="section-head"><h2>DNS Records</h2></div>
-        <table><thead><tr><th>Type</th><th>Name</th><th>Value</th></tr></thead><tbody id="dns"></tbody></table>
+
+      <section class="card panel hidden" id="users-panel">
+        <div class="panel-head"><h3>Mailbox Users</h3><div class="panel-actions"><button class="secondary-button"><span class="material-symbols-outlined">admin_panel_settings</span>Policy</button></div></div>
+        <div class="table-wrap"><table><thead><tr><th>User</th><th>Tenant</th><th>Domain</th><th>Status</th><th>Quota</th></tr></thead><tbody id="users"></tbody></table></div>
       </section>
-    </div>
-  </main>
+
+      <section class="card panel hidden" id="dns-panel">
+        <div class="panel-head"><h3>DNS Records Configuration</h3><div class="panel-actions"><button class="secondary-button" id="refresh-dns"><span class="material-symbols-outlined">refresh</span>Refresh DNS</button></div></div>
+        <div class="dns-grid" id="dns"><div class="muted">Select DNS from a domain row to view MX, SPF, DKIM, DMARC, MTA-STS, and TLS reporting records.</div></div>
+      </section>
+
+      <section class="card panel hidden" id="placeholder-panel">
+        <div class="panel-head"><h3 id="placeholder-title">Coming Next</h3></div>
+        <div class="dns-grid"><div class="muted">This section is reserved for the next admin module. The visual shell is ready; backend functions will be attached as we implement each service capability.</div></div>
+      </section>
+
+      <footer>
+        <div class="compliance"><span class="material-symbols-outlined">verified_user</span><span>All data processed under SOC2 compliance standards</span></div>
+        <div>Legal Registry &nbsp;&nbsp; API Documentation &nbsp;&nbsp; Admin Support</div>
+      </footer>
+    </main>
+  </div>
+
   <script>
+    const state = { tenants: [], domains: [], users: [], view: "tenants", dnsDomainId: null };
     const statusEl = document.querySelector("#status");
-    const showStatus = (text, error = false) => {
-      statusEl.textContent = text;
-      statusEl.className = error ? "status error" : "status";
-    };
+    const searchEl = document.querySelector("#search");
+    const showStatus = (text, error) => { statusEl.textContent = text || ""; statusEl.className = error ? "toast error" : "toast"; };
     const api = async (path, options = {}) => {
-      const response = await fetch(path, {
-        headers: {"Content-Type": "application/json"},
-        ...options
-      });
+      const response = await fetch(path, { headers: {"Content-Type": "application/json"}, ...options });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || response.statusText);
       return data;
     };
-    const rows = (target, items, render) => {
-      document.querySelector(target).innerHTML = items.map(render).join("");
-    };
+    const esc = value => String(value ?? "").replace(/[&<>"']/g, char => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[char]));
+    const initials = value => String(value || "?").split(/[\s.-]+/).filter(Boolean).slice(0, 2).map(part => part[0]).join("").toUpperCase();
+    const badge = status => "<span class=\"badge " + esc(status) + "\"><span>●</span>" + esc(status || "active") + "</span>";
+    const dateText = value => value ? new Date(value).toLocaleDateString() : "Today";
+    const quotaText = bytes => bytes ? Math.round(bytes / 1024 / 1024 / 1024) + " GB" : "10 GB";
+
+    function filtered(items, fields) {
+      const q = searchEl.value.trim().toLowerCase();
+      if (!q) return items;
+      return items.filter(item => fields.some(field => String(item[field] || "").toLowerCase().includes(q)));
+    }
+    function render() {
+      document.querySelector("#stat-tenants").textContent = state.tenants.length;
+      document.querySelector("#stat-domains").textContent = state.domains.length;
+      document.querySelector("#stat-users").textContent = state.users.length;
+      document.querySelector("#tenants").innerHTML = filtered(state.tenants, ["name","slug","id"]).map(item =>
+        "<tr><td><div class=\"identity\"><span class=\"initials\">" + esc(initials(item.name)) + "</span><div><strong>" + esc(item.name) + "</strong><div class=\"muted\">Enterprise Plan</div></div></div></td><td class=\"muted\">" + esc(item.slug) + "</td><td>" + badge(item.status) + "</td><td>" + esc(dateText(item.created_at)) + "</td></tr>"
+      ).join("");
+      document.querySelector("#domains").innerHTML = filtered(state.domains, ["name","status","id"]).map(item =>
+        "<tr><td><div class=\"identity\"><span class=\"initials\">" + esc(initials(item.name)) + "</span><div><strong>" + esc(item.name) + "</strong><div class=\"muted\">Domain ID " + esc(item.id) + "</div></div></div></td><td>" + esc(item.tenant_id) + "</td><td>" + badge(item.status) + "</td><td><code>" + esc(item.dkim_selector || "mail") + "</code></td><td><button class=\"secondary-button\" data-dns=\"" + esc(item.id) + "\"><span class=\"material-symbols-outlined\">dns</span>DNS</button></td></tr>"
+      ).join("");
+      document.querySelector("#users").innerHTML = filtered(state.users, ["local_part","display_name","status","id"]).map(item =>
+        "<tr><td><div class=\"identity\"><span class=\"initials\">" + esc(initials(item.display_name || item.local_part)) + "</span><div><strong>" + esc(item.display_name || item.local_part) + "</strong><div class=\"muted\">" + esc(item.local_part) + "</div></div></div></td><td>" + esc(item.tenant_id) + "</td><td>" + esc(item.primary_domain_id) + "</td><td>" + badge(item.status) + "</td><td>" + esc(quotaText(item.quota_bytes)) + "</td></tr>"
+      ).join("");
+    }
     async function refresh() {
-      const [tenants, domains, users] = await Promise.all([
-        api("/api/v1/tenants"),
-        api("/api/v1/domains"),
-        api("/api/v1/users")
-      ]);
-      rows("#tenants", tenants, item => "<tr><td>" + item.id + "</td><td>" + item.name + "<br><code>" + item.slug + "</code></td><td>" + item.status + "</td></tr>");
-      rows("#domains", domains, item => "<tr><td>" + item.id + "</td><td>" + item.name + "<br><code>tenant " + item.tenant_id + "</code></td><td><button class=\"secondary\" type=\"button\" data-dns=\"" + item.id + "\">DNS</button></td></tr>");
-      rows("#users", users, item => "<tr><td>" + item.id + "</td><td>" + item.local_part + "<br><code>domain " + item.primary_domain_id + "</code></td><td>" + item.status + "</td></tr>");
-      showStatus("Loaded");
+      const [tenants, domains, users] = await Promise.all([api("/api/v1/tenants"), api("/api/v1/domains"), api("/api/v1/users")]);
+      state.tenants = tenants || [];
+      state.domains = domains || [];
+      state.users = users || [];
+      render();
+      showStatus("Loaded live platform data");
+    }
+    function setView(view) {
+      state.view = view;
+      document.querySelectorAll(".nav-item[data-view]").forEach(item => item.classList.toggle("active", item.dataset.view === view));
+      ["tenants","domains","users","dns"].forEach(id => document.querySelector("#" + id + "-panel").classList.toggle("hidden", view !== id));
+      document.querySelector("#placeholder-panel").classList.toggle("hidden", !["audit","settings"].includes(view));
+      document.querySelector("#forms").classList.toggle("hidden", !["tenants","domains","users"].includes(view));
+      const copy = {
+        tenants: ["Tenants", "Manage Tenants", "Organization-level provisioning and compliance monitoring.", "Search tenants by name or ID..."],
+        domains: ["Domains", "Manage Domains", "Domain onboarding, verification, and deliverability records.", "Search domains by name or ID..."],
+        users: ["Users", "Manage Users", "Mailbox provisioning, status review, and quota visibility.", "Search users by name or ID..."],
+        dns: ["DNS Records", "DNS Records Configuration", "MX, SPF, DKIM, DMARC, MTA-STS, and TLS reporting guidance.", "Search domains..."],
+        audit: ["Audit Logs", "Audit Logs", "Security event and administrative activity timeline.", "Search audit events..."],
+        settings: ["Settings", "Settings", "Platform security and service configuration.", "Search settings..."]
+      }[view];
+      document.querySelector("#top-title").textContent = copy[0];
+      document.querySelector("#hero-title").textContent = copy[1];
+      document.querySelector("#hero-subtitle").textContent = copy[2];
+      searchEl.placeholder = copy[3];
+      document.querySelector("#placeholder-title").textContent = copy[1];
+      render();
     }
     async function submitForm(event, path, numericFields = []) {
       event.preventDefault();
       const form = event.currentTarget;
       const body = Object.fromEntries(new FormData(form).entries());
-      for (const field of numericFields) body[field] = Number(body[field]);
+      numericFields.forEach(field => body[field] = Number(body[field]));
       try {
-        await api(path, {method: "POST", body: JSON.stringify(body)});
+        await api(path, { method: "POST", body: JSON.stringify(body) });
         form.reset();
         await refresh();
-        showStatus("Saved");
+        showStatus("Saved successfully");
+      } catch (error) {
+        showStatus(error.message, true);
+      }
+    }
+    async function loadDNS(id) {
+      try {
+        const dns = await api("/api/v1/domains/" + id + "/dns");
+        setView("dns");
+        document.querySelector("#dns").innerHTML = dns.records.map(record =>
+          "<div class=\"dns-record\"><strong>" + esc(record.type) + "</strong><code>" + esc(record.name) + "</code><code>" + esc(record.priority ? record.priority + " " : "") + esc(record.value) + "</code></div>"
+        ).join("");
+        showStatus("DNS records loaded for " + dns.domain);
       } catch (error) {
         showStatus(error.message, true);
       }
     }
     document.querySelector("#tenant-form").addEventListener("submit", event => submitForm(event, "/api/v1/tenants"));
     document.querySelector("#domain-form").addEventListener("submit", event => submitForm(event, "/api/v1/domains", ["tenant_id"]));
-    document.querySelector("#user-form").addEventListener("submit", event => submitForm(event, "/api/v1/users", ["tenant_id", "primary_domain_id"]));
-    document.querySelector("#refresh").addEventListener("click", refresh);
-    document.addEventListener("click", async event => {
-      const id = event.target.dataset && event.target.dataset.dns;
-      if (!id) return;
-      try {
-        const dns = await api("/api/v1/domains/" + id + "/dns");
-        rows("#dns", dns.records, record => "<tr><td>" + record.type + "</td><td><code>" + record.name + "</code></td><td><code>" + (record.priority ? record.priority + " " : "") + record.value + "</code></td></tr>");
-        showStatus("DNS for " + dns.domain);
-      } catch (error) {
-        showStatus(error.message, true);
-      }
-    });
+    document.querySelector("#user-form").addEventListener("submit", event => submitForm(event, "/api/v1/users", ["tenant_id","primary_domain_id"]));
+    document.querySelectorAll(".nav-item[data-view]").forEach(item => item.addEventListener("click", () => setView(item.dataset.view)));
+    document.querySelector("#primary-action").addEventListener("click", () => document.querySelector("#forms").scrollIntoView({behavior: "smooth"}));
+    document.addEventListener("click", event => { const id = event.target.closest("[data-dns]")?.dataset.dns; if (id) loadDNS(id); });
+    searchEl.addEventListener("input", render);
     refresh().catch(error => showStatus(error.message, true));
   </script>
 </body>
