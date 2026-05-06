@@ -14,7 +14,7 @@ type Config struct {
 
 func LoadConfig() (Config, error) {
 	cfg := Config{
-		HTTPAddr:     valueOrDefault(os.Getenv("PROIDENTITY_HTTP_ADDR"), "127.0.0.1:8080"),
+		HTTPAddr:     valueOrDefault(os.Getenv("PROIDENTITY_HTTP_ADDR"), "0.0.0.0:8080"),
 		DBDSN:        os.Getenv("PROIDENTITY_DB_DSN"),
 		DBName:       valueOrDefault(os.Getenv("PROIDENTITY_DB_NAME"), "proidentity_mail"),
 		DBUser:       valueOrDefault(os.Getenv("PROIDENTITY_DB_USER"), "proidentity_mail"),

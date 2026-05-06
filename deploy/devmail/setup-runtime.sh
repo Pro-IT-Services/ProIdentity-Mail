@@ -20,7 +20,7 @@ FLUSH PRIVILEGES;
 SQL
 
   cat > /etc/proidentity-mail/proidentity-mail.env <<EOF
-PROIDENTITY_HTTP_ADDR=127.0.0.1:8080
+PROIDENTITY_HTTP_ADDR=0.0.0.0:8080
 PROIDENTITY_DB_NAME=proidentity_mail
 PROIDENTITY_DB_USER=proidentity_mail
 PROIDENTITY_DB_PASSWORD=${db_password}

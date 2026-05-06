@@ -3,33 +3,42 @@ package domain
 import "time"
 
 type Tenant struct {
-	ID        uint64
-	Name      string
-	Slug      string
-	Status    string
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID        uint64    `json:"id"`
+	Name      string    `json:"name"`
+	Slug      string    `json:"slug"`
+	Status    string    `json:"status"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 type Domain struct {
-	ID           uint64
-	TenantID     uint64
-	Name         string
-	Status       string
-	DKIMSelector string
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ID           uint64    `json:"id"`
+	TenantID     uint64    `json:"tenant_id"`
+	Name         string    `json:"name"`
+	Status       string    `json:"status"`
+	DKIMSelector string    `json:"dkim_selector"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
 type User struct {
-	ID              uint64
-	TenantID        uint64
-	PrimaryDomainID uint64
-	LocalPart       string
-	DisplayName     string
-	PasswordHash    string
-	Status          string
-	QuotaBytes      uint64
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	ID              uint64    `json:"id"`
+	TenantID        uint64    `json:"tenant_id"`
+	PrimaryDomainID uint64    `json:"primary_domain_id"`
+	LocalPart       string    `json:"local_part"`
+	DisplayName     string    `json:"display_name"`
+	PasswordHash    string    `json:"password_hash,omitempty"`
+	Status          string    `json:"status"`
+	QuotaBytes      uint64    `json:"quota_bytes"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
+}
+
+type Alias struct {
+	ID              uint64    `json:"id"`
+	TenantID        uint64    `json:"tenant_id"`
+	DomainID        uint64    `json:"domain_id"`
+	SourceLocalPart string    `json:"source_local_part"`
+	Destination     string    `json:"destination"`
+	CreatedAt       time.Time `json:"created_at"`
 }
