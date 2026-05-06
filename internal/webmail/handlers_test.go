@@ -231,6 +231,41 @@ func TestCreateContactEndpointUsesAuthenticatedUser(t *testing.T) {
 	}
 }
 
+func TestUpdateContactEndpointUsesAuthenticatedUser(t *testing.T) {
+	store := &fakeStore{valid: true}
+	handler := NewRouter(store)
+	body := `{"name":"Ada Byron","email":"ada@lovelace.example"}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/contacts/ada", strings.NewReader(body))
+	req.SetBasicAuth("marko@example.com", "secret123456")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if store.updatedContactID != "ada" || store.updatedContact.Email != "ada@lovelace.example" {
+		t.Fatalf("unexpected updated contact id=%q contact=%+v", store.updatedContactID, store.updatedContact)
+	}
+}
+
+func TestDeleteContactEndpointUsesAuthenticatedUser(t *testing.T) {
+	store := &fakeStore{valid: true}
+	handler := NewRouter(store)
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/contacts/ada", nil)
+	req.SetBasicAuth("marko@example.com", "secret123456")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d, body %s", rec.Code, http.StatusNoContent, rec.Body.String())
+	}
+	if store.deletedContactID != "ada" {
+		t.Fatalf("deleted contact id = %q, want ada", store.deletedContactID)
+	}
+}
+
 func TestCalendarEndpointReturnsEvents(t *testing.T) {
 	handler := NewRouter(&fakeStore{valid: true})
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/calendar", nil)
@@ -262,6 +297,41 @@ func TestCreateCalendarEndpointUsesAuthenticatedUser(t *testing.T) {
 	}
 	if store.createdEvent.Title != "Planning" {
 		t.Fatalf("unexpected created event: %+v", store.createdEvent)
+	}
+}
+
+func TestUpdateCalendarEndpointUsesAuthenticatedUser(t *testing.T) {
+	store := &fakeStore{valid: true}
+	handler := NewRouter(store)
+	body := `{"title":"Planning updated","starts_at":"2026-05-07T12:00:00Z","ends_at":"2026-05-07T13:00:00Z"}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/calendar/planning", strings.NewReader(body))
+	req.SetBasicAuth("marko@example.com", "secret123456")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if store.updatedEventID != "planning" || store.updatedEvent.Title != "Planning updated" {
+		t.Fatalf("unexpected updated event id=%q event=%+v", store.updatedEventID, store.updatedEvent)
+	}
+}
+
+func TestDeleteCalendarEndpointUsesAuthenticatedUser(t *testing.T) {
+	store := &fakeStore{valid: true}
+	handler := NewRouter(store)
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/calendar/planning", nil)
+	req.SetBasicAuth("marko@example.com", "secret123456")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d, body %s", rec.Code, http.StatusNoContent, rec.Body.String())
+	}
+	if store.deletedEventID != "planning" {
+		t.Fatalf("deleted event id = %q, want planning", store.deletedEventID)
 	}
 }
 
@@ -323,7 +393,13 @@ type fakeStore struct {
 	movedID              string
 	movedFolder          string
 	createdContact       Contact
+	updatedContactID     string
+	updatedContact       Contact
+	deletedContactID     string
 	createdEvent         CalendarEvent
+	updatedEventID       string
+	updatedEvent         CalendarEvent
+	deletedEventID       string
 	changedPasswordEmail string
 	changedPassword      string
 }
@@ -375,6 +451,18 @@ func (s *fakeStore) CreateContact(ctx context.Context, email string, contact Con
 	return contact, nil
 }
 
+func (s *fakeStore) UpdateContact(ctx context.Context, email, id string, contact Contact) (Contact, error) {
+	s.updatedContactID = id
+	s.updatedContact = contact
+	contact.ID = id
+	return contact, nil
+}
+
+func (s *fakeStore) DeleteContact(ctx context.Context, email, id string) error {
+	s.deletedContactID = id
+	return nil
+}
+
 func (s *fakeStore) ListCalendarEvents(ctx context.Context, email string) ([]CalendarEvent, error) {
 	return []CalendarEvent{{ID: "planning", Title: "Planning"}}, nil
 }
@@ -383,6 +471,18 @@ func (s *fakeStore) CreateCalendarEvent(ctx context.Context, email string, event
 	s.createdEvent = event
 	event.ID = "planning"
 	return event, nil
+}
+
+func (s *fakeStore) UpdateCalendarEvent(ctx context.Context, email, id string, event CalendarEvent) (CalendarEvent, error) {
+	s.updatedEventID = id
+	s.updatedEvent = event
+	event.ID = id
+	return event, nil
+}
+
+func (s *fakeStore) DeleteCalendarEvent(ctx context.Context, email, id string) error {
+	s.deletedEventID = id
+	return nil
 }
 
 func (s *fakeStore) ChangePassword(ctx context.Context, email, newPassword string) error {

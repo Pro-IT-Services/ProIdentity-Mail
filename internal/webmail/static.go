@@ -279,6 +279,38 @@ const webmailIndexHTML = `<!doctype html>
       gap: 12px;
       align-items: center;
     }
+    .workspace-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
+    .workspace-head h2 { margin-bottom: 6px; }
+    .muted { color: var(--muted); }
+    .compact-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .secondary-button, .danger-button {
+      min-height: 34px;
+      border: 1px solid var(--outline);
+      border-radius: 8px;
+      background: white;
+      color: var(--ink);
+      padding: 0 10px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .secondary-button .material-symbols-outlined, .danger-button .material-symbols-outlined { font-size: 20px; }
+    .danger-button { color: var(--danger); border-color: rgba(186,26,26,.32); }
+    .connect-box {
+      border: 1px solid var(--outline);
+      border-radius: 8px;
+      background: #fbfcff;
+      padding: 14px;
+      margin: 12px 0 18px;
+      display: grid;
+      gap: 8px;
+    }
+    .connect-row { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 10px; align-items: center; }
+    .connect-row code { overflow-wrap: anywhere; font-size: 12px; }
     .rail {
       border-left: 1px solid var(--outline);
       display: flex;
@@ -316,6 +348,7 @@ const webmailIndexHTML = `<!doctype html>
     .modal.hidden { display: none; }
     .modal-head { display: flex; justify-content: space-between; align-items: center; }
     .modal-head h2 { margin: 0; font-size: 18px; }
+    .modal .modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
     textarea {
       width: 100%;
       min-height: 150px;
@@ -453,13 +486,55 @@ const webmailIndexHTML = `<!doctype html>
     <div class="error" id="compose-error"></div>
   </form>
 
+  <form class="modal hidden" id="contact-modal">
+    <div class="modal-head"><h2 id="contact-title">Contact</h2><button class="tool-button" type="button" id="close-contact" title="Close"><span class="material-symbols-outlined">close</span></button></div>
+    <input type="hidden" name="id">
+    <label>Name<input name="name" autocomplete="name" required></label>
+    <label>Email<input name="email" type="email" autocomplete="email" required></label>
+    <div class="modal-actions">
+      <button class="secondary-button" type="button" id="cancel-contact">Cancel</button>
+      <button class="primary-button" type="submit">Save Contact</button>
+    </div>
+    <div class="error" id="contact-error"></div>
+  </form>
+
+  <form class="modal hidden" id="event-modal">
+    <div class="modal-head"><h2 id="event-title">Calendar Event</h2><button class="tool-button" type="button" id="close-event" title="Close"><span class="material-symbols-outlined">close</span></button></div>
+    <input type="hidden" name="id">
+    <label>Title<input name="title" required></label>
+    <label>Starts<input name="starts_at" type="datetime-local" required></label>
+    <label>Ends<input name="ends_at" type="datetime-local" required></label>
+    <div class="modal-actions">
+      <button class="secondary-button" type="button" id="cancel-event">Cancel</button>
+      <button class="primary-button" type="submit">Save Event</button>
+    </div>
+    <div class="error" id="event-error"></div>
+  </form>
+
   <script>
-    const state = { csrf: "", email: "", messages: [], selected: null, folder: "inbox" };
+    const state = { csrf: "", email: "", messages: [], selected: null, folder: "inbox", contacts: [], events: [], view: "mail" };
     const esc = value => String(value ?? "").replace(/[&<>"']/g, char => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[char]));
     const initials = email => String(email || "--").split("@")[0].split(/[._-]+/).filter(Boolean).slice(0, 2).map(part => part[0]).join("").toUpperCase() || "--";
     const messageTime = item => item.date ? new Date(item.date).toLocaleString([], {month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"}) : "";
+    const dateTimeLocal = value => {
+      const date = value ? new Date(value) : new Date(Date.now() + 3600000);
+      const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+      return local.toISOString().slice(0, 16);
+    };
     const shortFrom = value => String(value || "Unknown").replace(/<.*>/, "").replace(/"/g, "").trim() || "Unknown";
+    const serviceBase = () => location.origin.replace(/^http:/, "https:");
+    const api = async (path, options = {}) => {
+      const response = await fetch(path, {credentials: "same-origin", ...options, headers: {"Content-Type": "application/json", ...(state.csrf ? {"X-CSRF-Token": state.csrf} : {}), ...(options.headers || {})}});
+      if (!response.ok) {
+        let message = "Request failed";
+        try { message = (await response.json()).error || message; } catch {}
+        throw new Error(message);
+      }
+      if (response.status === 204) return null;
+      return response.json();
+    };
     async function loadMessages() {
+      state.view = "mail";
       const response = await fetch("/api/v1/messages?limit=100&folder=" + encodeURIComponent(state.folder), { credentials: "same-origin" });
       if (!response.ok) throw new Error("Mailbox authentication failed");
       state.messages = await response.json();
@@ -473,37 +548,86 @@ const webmailIndexHTML = `<!doctype html>
       await loadMessages();
     }
     async function loadContactsView() {
-      const response = await fetch("/api/v1/contacts", { credentials: "same-origin" });
-      if (!response.ok) throw new Error("Contacts load failed");
-      const contacts = await response.json();
-      document.querySelector("#reader").innerHTML = "<h2>Contacts</h2><button class=\"primary-button\" id=\"add-contact\" type=\"button\">Add Contact</button><div class=\"mini-grid\">" + contacts.map(item => "<div class=\"mini-row\"><div><strong>" + esc(item.name) + "</strong><div class=\"muted\">" + esc(item.email) + "</div></div><span class=\"material-symbols-outlined\">contacts</span></div>").join("") + "</div>";
-      document.querySelector("#add-contact").addEventListener("click", createContact);
+      state.view = "contacts";
+      state.contacts = await api("/api/v1/contacts");
+      renderContactsView();
     }
-    async function createContact() {
-      const name = prompt("Contact name");
-      if (!name) return;
-      const email = prompt("Contact email");
-      if (!email) return;
-      const response = await fetch("/api/v1/contacts", {method: "POST", credentials: "same-origin", headers: {"Content-Type": "application/json", "X-CSRF-Token": state.csrf}, body: JSON.stringify({name, email})});
-      if (!response.ok) throw new Error("Create contact failed");
+    function renderContactsView() {
+      const carddav = serviceBase() + "/dav/addressbooks/" + encodeURIComponent(state.email) + "/default/";
+      document.querySelector("#reader").innerHTML =
+        "<div class=\"workspace-head\"><div><h2>Contacts</h2><div class=\"muted\">People available to webmail and CardDAV clients.</div></div><button class=\"primary-button\" id=\"add-contact\" type=\"button\">Add Contact</button></div>" +
+        "<div class=\"connect-box\"><strong>Phone contact source</strong><div class=\"connect-row\"><span class=\"muted\">Server</span><code>" + esc(carddav) + "</code></div><div class=\"connect-row\"><span class=\"muted\">Username</span><code>" + esc(state.email) + "</code></div></div>" +
+        "<div class=\"mini-grid\">" + state.contacts.map(item => "<div class=\"mini-row\"><div><strong>" + esc(item.name) + "</strong><div class=\"muted\">" + esc(item.email) + "</div></div><div class=\"compact-actions\"><button class=\"secondary-button\" data-edit-contact=\"" + esc(item.id) + "\"><span class=\"material-symbols-outlined\">edit</span>Edit</button><button class=\"danger-button\" data-delete-contact=\"" + esc(item.id) + "\"><span class=\"material-symbols-outlined\">delete</span>Delete</button></div></div>").join("") + "</div>";
+      document.querySelector("#add-contact").addEventListener("click", () => openContactModal());
+    }
+    function openContactModal(contact = {}) {
+      const form = document.querySelector("#contact-modal");
+      form.reset();
+      form.elements.id.value = contact.id || "";
+      form.elements.name.value = contact.name || "";
+      form.elements.email.value = contact.email || "";
+      document.querySelector("#contact-title").textContent = contact.id ? "Edit Contact" : "Add Contact";
+      document.querySelector("#contact-error").textContent = "";
+      form.classList.remove("hidden");
+    }
+    async function saveContact(event) {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const id = form.elements.id.value;
+      const payload = {name: form.elements.name.value.trim(), email: form.elements.email.value.trim()};
+      try {
+        if (id) await api("/api/v1/contacts/" + encodeURIComponent(id), {method: "PUT", body: JSON.stringify(payload)});
+        else await api("/api/v1/contacts", {method: "POST", body: JSON.stringify(payload)});
+        form.classList.add("hidden");
+        await loadContactsView();
+      } catch (error) {
+        document.querySelector("#contact-error").textContent = error.message;
+      }
+    }
+    async function deleteContact(id) {
+      await api("/api/v1/contacts/" + encodeURIComponent(id), {method: "DELETE"});
       await loadContactsView();
     }
     async function loadCalendarView() {
-      const response = await fetch("/api/v1/calendar", { credentials: "same-origin" });
-      if (!response.ok) throw new Error("Calendar load failed");
-      const events = await response.json();
-      document.querySelector("#reader").innerHTML = "<h2>Calendar</h2><button class=\"primary-button\" id=\"add-event\" type=\"button\">Add Event</button><div class=\"mini-grid\">" + events.map(item => "<div class=\"mini-row\"><div><strong>" + esc(item.title) + "</strong><div class=\"muted\">" + esc(new Date(item.starts_at).toLocaleString()) + "</div></div><span class=\"material-symbols-outlined\">event</span></div>").join("") + "</div>";
-      document.querySelector("#add-event").addEventListener("click", createEvent);
+      state.view = "calendar";
+      state.events = await api("/api/v1/calendar");
+      renderCalendarView();
     }
-    async function createEvent() {
-      const title = prompt("Event title");
-      if (!title) return;
-      const start = prompt("Start time", new Date(Date.now() + 3600000).toISOString());
-      if (!start) return;
-      const end = prompt("End time", new Date(Date.now() + 7200000).toISOString());
-      if (!end) return;
-      const response = await fetch("/api/v1/calendar", {method: "POST", credentials: "same-origin", headers: {"Content-Type": "application/json", "X-CSRF-Token": state.csrf}, body: JSON.stringify({title, starts_at: new Date(start).toISOString(), ends_at: new Date(end).toISOString()})});
-      if (!response.ok) throw new Error("Create event failed");
+    function renderCalendarView() {
+      const caldav = serviceBase() + "/dav/calendars/" + encodeURIComponent(state.email) + "/default/";
+      document.querySelector("#reader").innerHTML =
+        "<div class=\"workspace-head\"><div><h2>Calendar</h2><div class=\"muted\">Events shared with CalDAV clients.</div></div><button class=\"primary-button\" id=\"add-event\" type=\"button\">Add Event</button></div>" +
+        "<div class=\"connect-box\"><strong>Phone calendar source</strong><div class=\"connect-row\"><span class=\"muted\">Server</span><code>" + esc(caldav) + "</code></div><div class=\"connect-row\"><span class=\"muted\">Username</span><code>" + esc(state.email) + "</code></div></div>" +
+        "<div class=\"mini-grid\">" + state.events.map(item => "<div class=\"mini-row\"><div><strong>" + esc(item.title) + "</strong><div class=\"muted\">" + esc(new Date(item.starts_at).toLocaleString()) + " - " + esc(new Date(item.ends_at).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})) + "</div></div><div class=\"compact-actions\"><button class=\"secondary-button\" data-edit-event=\"" + esc(item.id) + "\"><span class=\"material-symbols-outlined\">edit</span>Edit</button><button class=\"danger-button\" data-delete-event=\"" + esc(item.id) + "\"><span class=\"material-symbols-outlined\">delete</span>Delete</button></div></div>").join("") + "</div>";
+      document.querySelector("#add-event").addEventListener("click", () => openEventModal());
+    }
+    function openEventModal(item = {}) {
+      const form = document.querySelector("#event-modal");
+      form.reset();
+      form.elements.id.value = item.id || "";
+      form.elements.title.value = item.title || "";
+      form.elements.starts_at.value = dateTimeLocal(item.starts_at);
+      form.elements.ends_at.value = dateTimeLocal(item.ends_at || new Date(Date.now() + 7200000));
+      document.querySelector("#event-title").textContent = item.id ? "Edit Event" : "Add Event";
+      document.querySelector("#event-error").textContent = "";
+      form.classList.remove("hidden");
+    }
+    async function saveEvent(event) {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const id = form.elements.id.value;
+      const payload = {title: form.elements.title.value.trim(), starts_at: new Date(form.elements.starts_at.value).toISOString(), ends_at: new Date(form.elements.ends_at.value).toISOString()};
+      try {
+        if (id) await api("/api/v1/calendar/" + encodeURIComponent(id), {method: "PUT", body: JSON.stringify(payload)});
+        else await api("/api/v1/calendar", {method: "POST", body: JSON.stringify(payload)});
+        form.classList.add("hidden");
+        await loadCalendarView();
+      } catch (error) {
+        document.querySelector("#event-error").textContent = error.message;
+      }
+    }
+    async function deleteEvent(id) {
+      await api("/api/v1/calendar/" + encodeURIComponent(id), {method: "DELETE"});
       await loadCalendarView();
     }
     async function reportSelected(verdict) {
@@ -518,6 +642,7 @@ const webmailIndexHTML = `<!doctype html>
       return state.messages.filter(item => [item.from, item.to, item.subject, item.preview].some(value => String(value || "").toLowerCase().includes(q)));
     }
     function render() {
+      if (state.view !== "mail") return;
       document.querySelector("#avatar").textContent = initials(state.email);
       document.querySelector("#inbox-count").textContent = state.messages.length;
       document.querySelector(".pane-head h2").textContent = state.folder.charAt(0).toUpperCase() + state.folder.slice(1);
@@ -563,6 +688,12 @@ const webmailIndexHTML = `<!doctype html>
     });
     document.querySelector(".compose").addEventListener("click", () => document.querySelector("#compose-modal").classList.remove("hidden"));
     document.querySelector("#close-compose").addEventListener("click", () => document.querySelector("#compose-modal").classList.add("hidden"));
+    document.querySelector("#close-contact").addEventListener("click", () => document.querySelector("#contact-modal").classList.add("hidden"));
+    document.querySelector("#cancel-contact").addEventListener("click", () => document.querySelector("#contact-modal").classList.add("hidden"));
+    document.querySelector("#contact-modal").addEventListener("submit", saveContact);
+    document.querySelector("#close-event").addEventListener("click", () => document.querySelector("#event-modal").classList.add("hidden"));
+    document.querySelector("#cancel-event").addEventListener("click", () => document.querySelector("#event-modal").classList.add("hidden"));
+    document.querySelector("#event-modal").addEventListener("submit", saveEvent);
     document.querySelector("#compose-modal").addEventListener("submit", async event => {
       event.preventDefault();
       const data = new FormData(event.currentTarget);
@@ -591,6 +722,26 @@ const webmailIndexHTML = `<!doctype html>
     }));
     document.querySelector("#search").addEventListener("input", render);
     document.addEventListener("click", event => {
+      const editContact = event.target.closest("[data-edit-contact]");
+      if (editContact) {
+        openContactModal(state.contacts.find(item => item.id === editContact.dataset.editContact) || {});
+        return;
+      }
+      const deleteContactButton = event.target.closest("[data-delete-contact]");
+      if (deleteContactButton) {
+        deleteContact(deleteContactButton.dataset.deleteContact).catch(error => alert(error.message));
+        return;
+      }
+      const editEvent = event.target.closest("[data-edit-event]");
+      if (editEvent) {
+        openEventModal(state.events.find(item => item.id === editEvent.dataset.editEvent) || {});
+        return;
+      }
+      const deleteEventButton = event.target.closest("[data-delete-event]");
+      if (deleteEventButton) {
+        deleteEvent(deleteEventButton.dataset.deleteEvent).catch(error => alert(error.message));
+        return;
+      }
       const button = event.target.closest("[data-id]");
       if (!button) return;
       state.selected = state.messages.find(item => item.id === button.dataset.id) || null;

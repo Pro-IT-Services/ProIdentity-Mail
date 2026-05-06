@@ -23,8 +23,12 @@ type Store interface {
 	MoveMessage(ctx context.Context, email, id, folder string) error
 	ListContacts(ctx context.Context, email string) ([]Contact, error)
 	CreateContact(ctx context.Context, email string, contact Contact) (Contact, error)
+	UpdateContact(ctx context.Context, email, id string, contact Contact) (Contact, error)
+	DeleteContact(ctx context.Context, email, id string) error
 	ListCalendarEvents(ctx context.Context, email string) ([]CalendarEvent, error)
 	CreateCalendarEvent(ctx context.Context, email string, event CalendarEvent) (CalendarEvent, error)
+	UpdateCalendarEvent(ctx context.Context, email, id string, event CalendarEvent) (CalendarEvent, error)
+	DeleteCalendarEvent(ctx context.Context, email, id string) error
 	ChangePassword(ctx context.Context, email, newPassword string) error
 }
 
@@ -67,7 +71,9 @@ func NewRouter(store Store, managers ...*session.Manager) http.Handler {
 	mux.HandleFunc("/api/v1/messages/", h.message)
 	mux.HandleFunc("/api/v1/send", h.send)
 	mux.HandleFunc("/api/v1/contacts", h.contacts)
+	mux.HandleFunc("/api/v1/contacts/", h.contact)
 	mux.HandleFunc("/api/v1/calendar", h.calendar)
+	mux.HandleFunc("/api/v1/calendar/", h.calendarEvent)
 	mux.HandleFunc("/api/v1/password", h.changePassword)
 	mux.HandleFunc("/", index)
 	return mux
@@ -262,6 +268,45 @@ func (h handler) contacts(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (h handler) contact(w http.ResponseWriter, r *http.Request) {
+	email, ok := h.authorized(w, r)
+	if !ok {
+		return
+	}
+	id := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/v1/contacts/"), "/")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "contact id is required")
+		return
+	}
+	switch r.Method {
+	case http.MethodPut:
+		var req Contact
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid json")
+			return
+		}
+		if strings.TrimSpace(req.Name) == "" || strings.TrimSpace(req.Email) == "" {
+			writeError(w, http.StatusBadRequest, "name and email are required")
+			return
+		}
+		contact, err := h.store.UpdateContact(r.Context(), email, id, Contact{Name: strings.TrimSpace(req.Name), Email: strings.TrimSpace(req.Email)})
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "update contact failed")
+			return
+		}
+		writeJSON(w, http.StatusOK, contact)
+	case http.MethodDelete:
+		if err := h.store.DeleteContact(r.Context(), email, id); err != nil {
+			writeError(w, http.StatusInternalServerError, "delete contact failed")
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	default:
+		w.Header().Set("Allow", "PUT, DELETE")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
 func (h handler) calendar(w http.ResponseWriter, r *http.Request) {
 	email, ok := h.authorized(w, r)
 	if !ok {
@@ -293,6 +338,45 @@ func (h handler) calendar(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusCreated, event)
 	default:
 		w.Header().Set("Allow", "GET, POST")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (h handler) calendarEvent(w http.ResponseWriter, r *http.Request) {
+	email, ok := h.authorized(w, r)
+	if !ok {
+		return
+	}
+	id := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/v1/calendar/"), "/")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "event id is required")
+		return
+	}
+	switch r.Method {
+	case http.MethodPut:
+		var req CalendarEvent
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid json")
+			return
+		}
+		if strings.TrimSpace(req.Title) == "" || req.StartsAt.IsZero() || req.EndsAt.IsZero() {
+			writeError(w, http.StatusBadRequest, "title, starts_at, and ends_at are required")
+			return
+		}
+		event, err := h.store.UpdateCalendarEvent(r.Context(), email, id, CalendarEvent{Title: strings.TrimSpace(req.Title), StartsAt: req.StartsAt, EndsAt: req.EndsAt})
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "update calendar event failed")
+			return
+		}
+		writeJSON(w, http.StatusOK, event)
+	case http.MethodDelete:
+		if err := h.store.DeleteCalendarEvent(r.Context(), email, id); err != nil {
+			writeError(w, http.StatusInternalServerError, "delete calendar event failed")
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	default:
+		w.Header().Set("Allow", "PUT, DELETE")
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
 }

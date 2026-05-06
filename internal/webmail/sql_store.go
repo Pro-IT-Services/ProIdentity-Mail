@@ -114,6 +114,49 @@ func (s SQLAuthStore) CreateContact(ctx context.Context, email string, contact C
 	return contact, nil
 }
 
+func (s SQLAuthStore) UpdateContact(ctx context.Context, email, id string, contact Contact) (Contact, error) {
+	bookID, err := s.ensureAddressBook(ctx, email)
+	if err != nil {
+		return Contact{}, err
+	}
+	body := fmt.Sprintf("BEGIN:VCARD\r\nVERSION:3.0\r\nUID:%s\r\nFN:%s\r\nEMAIL:%s\r\nEND:VCARD\r\n", id, contact.Name, contact.Email)
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE contact_objects
+		SET etag = ?, vcard = ?, full_name = ?, email = ?, updated_at = CURRENT_TIMESTAMP
+		WHERE address_book_id = ? AND uid = ?`, objectETag(body), body, contact.Name, contact.Email, bookID, id)
+	if err != nil {
+		return Contact{}, err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return Contact{}, err
+	}
+	if affected == 0 {
+		return Contact{}, sql.ErrNoRows
+	}
+	contact.ID = id
+	return contact, nil
+}
+
+func (s SQLAuthStore) DeleteContact(ctx context.Context, email, id string) error {
+	bookID, err := s.ensureAddressBook(ctx, email)
+	if err != nil {
+		return err
+	}
+	result, err := s.db.ExecContext(ctx, `DELETE FROM contact_objects WHERE address_book_id = ? AND uid = ?`, bookID, id)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 func (s SQLAuthStore) ListCalendarEvents(ctx context.Context, email string) ([]CalendarEvent, error) {
 	calendarID, err := s.ensureCalendar(ctx, email)
 	if err != nil {
@@ -165,6 +208,49 @@ func (s SQLAuthStore) CreateCalendarEvent(ctx context.Context, email string, eve
 	}
 	event.ID = uid
 	return event, nil
+}
+
+func (s SQLAuthStore) UpdateCalendarEvent(ctx context.Context, email, id string, event CalendarEvent) (CalendarEvent, error) {
+	calendarID, err := s.ensureCalendar(ctx, email)
+	if err != nil {
+		return CalendarEvent{}, err
+	}
+	body := fmt.Sprintf("BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//ProIdentity//Mail//EN\r\nBEGIN:VEVENT\r\nUID:%s\r\nSUMMARY:%s\r\nDTSTART:%s\r\nDTEND:%s\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n", id, event.Title, event.StartsAt.UTC().Format("20060102T150405Z"), event.EndsAt.UTC().Format("20060102T150405Z"))
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE calendar_objects
+		SET etag = ?, icalendar = ?, starts_at = ?, ends_at = ?, updated_at = CURRENT_TIMESTAMP
+		WHERE calendar_id = ? AND uid = ?`, objectETag(body), body, event.StartsAt.UTC(), event.EndsAt.UTC(), calendarID, id)
+	if err != nil {
+		return CalendarEvent{}, err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return CalendarEvent{}, err
+	}
+	if affected == 0 {
+		return CalendarEvent{}, sql.ErrNoRows
+	}
+	event.ID = id
+	return event, nil
+}
+
+func (s SQLAuthStore) DeleteCalendarEvent(ctx context.Context, email, id string) error {
+	calendarID, err := s.ensureCalendar(ctx, email)
+	if err != nil {
+		return err
+	}
+	result, err := s.db.ExecContext(ctx, `DELETE FROM calendar_objects WHERE calendar_id = ? AND uid = ?`, calendarID, id)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 func (s SQLAuthStore) ChangePassword(ctx context.Context, email, newPassword string) error {
@@ -301,6 +387,24 @@ func (s CompositeStore) CreateContact(ctx context.Context, email string, contact
 	return Contact{}, sql.ErrNoRows
 }
 
+func (s CompositeStore) UpdateContact(ctx context.Context, email, id string, contact Contact) (Contact, error) {
+	if store, ok := s.Auth.(interface {
+		UpdateContact(context.Context, string, string, Contact) (Contact, error)
+	}); ok {
+		return store.UpdateContact(ctx, email, id, contact)
+	}
+	return Contact{}, sql.ErrNoRows
+}
+
+func (s CompositeStore) DeleteContact(ctx context.Context, email, id string) error {
+	if store, ok := s.Auth.(interface {
+		DeleteContact(context.Context, string, string) error
+	}); ok {
+		return store.DeleteContact(ctx, email, id)
+	}
+	return sql.ErrNoRows
+}
+
 func (s CompositeStore) ListCalendarEvents(ctx context.Context, email string) ([]CalendarEvent, error) {
 	if store, ok := s.Auth.(interface {
 		ListCalendarEvents(context.Context, string) ([]CalendarEvent, error)
@@ -317,6 +421,24 @@ func (s CompositeStore) CreateCalendarEvent(ctx context.Context, email string, e
 		return store.CreateCalendarEvent(ctx, email, event)
 	}
 	return CalendarEvent{}, sql.ErrNoRows
+}
+
+func (s CompositeStore) UpdateCalendarEvent(ctx context.Context, email, id string, event CalendarEvent) (CalendarEvent, error) {
+	if store, ok := s.Auth.(interface {
+		UpdateCalendarEvent(context.Context, string, string, CalendarEvent) (CalendarEvent, error)
+	}); ok {
+		return store.UpdateCalendarEvent(ctx, email, id, event)
+	}
+	return CalendarEvent{}, sql.ErrNoRows
+}
+
+func (s CompositeStore) DeleteCalendarEvent(ctx context.Context, email, id string) error {
+	if store, ok := s.Auth.(interface {
+		DeleteCalendarEvent(context.Context, string, string) error
+	}); ok {
+		return store.DeleteCalendarEvent(ctx, email, id)
+	}
+	return sql.ErrNoRows
 }
 
 func (s CompositeStore) ChangePassword(ctx context.Context, email, newPassword string) error {
