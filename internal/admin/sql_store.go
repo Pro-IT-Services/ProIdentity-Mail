@@ -34,6 +34,28 @@ func (s SQLStore) CreateTenant(ctx context.Context, tenant domain.Tenant) (domai
 	return tenant, nil
 }
 
+func (s SQLStore) ListTenants(ctx context.Context) ([]domain.Tenant, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, name, slug, status, created_at, updated_at
+		FROM tenants
+		ORDER BY created_at DESC, id DESC
+		LIMIT 200`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var tenants []domain.Tenant
+	for rows.Next() {
+		var tenant domain.Tenant
+		if err := rows.Scan(&tenant.ID, &tenant.Name, &tenant.Slug, &tenant.Status, &tenant.CreatedAt, &tenant.UpdatedAt); err != nil {
+			return nil, err
+		}
+		tenants = append(tenants, tenant)
+	}
+	return tenants, rows.Err()
+}
+
 func (s SQLStore) CreateDomain(ctx context.Context, mailDomain domain.Domain) (domain.Domain, error) {
 	result, err := s.db.ExecContext(ctx, `INSERT INTO domains(tenant_id, name, status, dkim_selector) VALUES (?, ?, 'pending', 'mail')`, mailDomain.TenantID, mailDomain.Name)
 	if err != nil {
@@ -47,6 +69,28 @@ func (s SQLStore) CreateDomain(ctx context.Context, mailDomain domain.Domain) (d
 	mailDomain.Status = "pending"
 	mailDomain.DKIMSelector = "mail"
 	return mailDomain, nil
+}
+
+func (s SQLStore) ListDomains(ctx context.Context) ([]domain.Domain, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, tenant_id, name, status, dkim_selector, created_at, updated_at
+		FROM domains
+		ORDER BY created_at DESC, id DESC
+		LIMIT 500`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var domains []domain.Domain
+	for rows.Next() {
+		var mailDomain domain.Domain
+		if err := rows.Scan(&mailDomain.ID, &mailDomain.TenantID, &mailDomain.Name, &mailDomain.Status, &mailDomain.DKIMSelector, &mailDomain.CreatedAt, &mailDomain.UpdatedAt); err != nil {
+			return nil, err
+		}
+		domains = append(domains, mailDomain)
+	}
+	return domains, rows.Err()
 }
 
 func (s SQLStore) CreateUser(ctx context.Context, user domain.User) (domain.User, error) {
@@ -69,6 +113,28 @@ func (s SQLStore) CreateUser(ctx context.Context, user domain.User) (domain.User
 	user.Status = "active"
 	user.QuotaBytes = 10737418240
 	return user, nil
+}
+
+func (s SQLStore) ListUsers(ctx context.Context) ([]domain.User, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, tenant_id, primary_domain_id, local_part, display_name, status, quota_bytes, created_at, updated_at
+		FROM users
+		ORDER BY created_at DESC, id DESC
+		LIMIT 500`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var users []domain.User
+	for rows.Next() {
+		var user domain.User
+		if err := rows.Scan(&user.ID, &user.TenantID, &user.PrimaryDomainID, &user.LocalPart, &user.DisplayName, &user.Status, &user.QuotaBytes, &user.CreatedAt, &user.UpdatedAt); err != nil {
+			return nil, err
+		}
+		users = append(users, user)
+	}
+	return users, rows.Err()
 }
 
 func (s SQLStore) GetDomainDNS(ctx context.Context, domainID uint64) (domain.DomainDNS, error) {

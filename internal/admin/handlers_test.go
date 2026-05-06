@@ -26,6 +26,51 @@ func TestHealthEndpoint(t *testing.T) {
 	}
 }
 
+func TestAdminIndexServesWebUI(t *testing.T) {
+	handler := NewRouter(&fakeStore{})
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if contentType := rec.Header().Get("Content-Type"); contentType != "text/html; charset=utf-8" {
+		t.Fatalf("content-type = %q, want text/html", contentType)
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte("ProIdentity Mail Admin")) {
+		t.Fatalf("index missing product title: %s", rec.Body.String())
+	}
+}
+
+func TestListEndpoints(t *testing.T) {
+	store := &fakeStore{}
+	handler := NewRouter(store)
+	tests := []struct {
+		path string
+		want string
+	}{
+		{path: "/api/v1/tenants", want: "Example Org"},
+		{path: "/api/v1/domains", want: "example.com"},
+		{path: "/api/v1/users", want: "marko"},
+	}
+
+	for _, tt := range tests {
+		req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+		rec := httptest.NewRecorder()
+
+		handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s status = %d, want %d, body %s", tt.path, rec.Code, http.StatusOK, rec.Body.String())
+		}
+		if !bytes.Contains(rec.Body.Bytes(), []byte(tt.want)) {
+			t.Fatalf("%s response missing %q: %s", tt.path, tt.want, rec.Body.String())
+		}
+	}
+}
+
 func TestCreateTenantEndpoint(t *testing.T) {
 	store := &fakeStore{}
 	handler := NewRouter(store)
@@ -146,6 +191,10 @@ func (s *fakeStore) CreateTenant(ctx context.Context, tenant domain.Tenant) (dom
 	return tenant, nil
 }
 
+func (s *fakeStore) ListTenants(ctx context.Context) ([]domain.Tenant, error) {
+	return []domain.Tenant{{ID: 11, Name: "Example Org", Slug: "example", Status: "active"}}, nil
+}
+
 func (s *fakeStore) CreateDomain(ctx context.Context, mailDomain domain.Domain) (domain.Domain, error) {
 	s.mailDomain = mailDomain
 	mailDomain.ID = 22
@@ -153,11 +202,19 @@ func (s *fakeStore) CreateDomain(ctx context.Context, mailDomain domain.Domain) 
 	return mailDomain, nil
 }
 
+func (s *fakeStore) ListDomains(ctx context.Context) ([]domain.Domain, error) {
+	return []domain.Domain{{ID: 22, TenantID: 11, Name: "example.com", Status: "pending", DKIMSelector: "mail"}}, nil
+}
+
 func (s *fakeStore) CreateUser(ctx context.Context, user domain.User) (domain.User, error) {
 	s.user = user
 	user.ID = 33
 	user.Status = "active"
 	return user, nil
+}
+
+func (s *fakeStore) ListUsers(ctx context.Context) ([]domain.User, error) {
+	return []domain.User{{ID: 33, TenantID: 11, PrimaryDomainID: 22, LocalPart: "marko", DisplayName: "Marko", Status: "active"}}, nil
 }
 
 func (s *fakeStore) GetDomainDNS(ctx context.Context, domainID uint64) (domain.DomainDNS, error) {

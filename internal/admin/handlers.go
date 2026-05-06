@@ -14,8 +14,11 @@ import (
 
 type Store interface {
 	CreateTenant(ctx context.Context, tenant domain.Tenant) (domain.Tenant, error)
+	ListTenants(ctx context.Context) ([]domain.Tenant, error)
 	CreateDomain(ctx context.Context, mailDomain domain.Domain) (domain.Domain, error)
+	ListDomains(ctx context.Context) ([]domain.Domain, error)
 	CreateUser(ctx context.Context, user domain.User) (domain.User, error)
+	ListUsers(ctx context.Context) ([]domain.User, error)
 	GetDomainDNS(ctx context.Context, domainID uint64) (domain.DomainDNS, error)
 }
 
@@ -26,10 +29,14 @@ type handler struct {
 func NewRouter(store Store) http.Handler {
 	h := handler{store: store}
 	r := chi.NewRouter()
+	r.Get("/", h.index)
 	r.Get("/healthz", health)
+	r.Get("/api/v1/tenants", h.listTenants)
 	r.Post("/api/v1/tenants", h.createTenant)
+	r.Get("/api/v1/domains", h.listDomains)
 	r.Post("/api/v1/domains", h.createDomain)
 	r.Get("/api/v1/domains/{domainID}/dns", h.getDomainDNS)
+	r.Get("/api/v1/users", h.listUsers)
 	r.Post("/api/v1/users", h.createUser)
 	return r
 }
@@ -37,6 +44,24 @@ func NewRouter(store Store) http.Handler {
 func health(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+func (h handler) index(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write([]byte(adminIndexHTML))
+}
+
+func (h handler) listTenants(w http.ResponseWriter, r *http.Request) {
+	if h.store == nil {
+		writeError(w, http.StatusServiceUnavailable, "store unavailable")
+		return
+	}
+	tenants, err := h.store.ListTenants(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "list tenants failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, tenants)
 }
 
 func (h handler) createTenant(w http.ResponseWriter, r *http.Request) {
@@ -89,6 +114,19 @@ func (h handler) createDomain(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, mailDomain)
 }
 
+func (h handler) listDomains(w http.ResponseWriter, r *http.Request) {
+	if h.store == nil {
+		writeError(w, http.StatusServiceUnavailable, "store unavailable")
+		return
+	}
+	domains, err := h.store.ListDomains(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "list domains failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, domains)
+}
+
 func (h handler) createUser(w http.ResponseWriter, r *http.Request) {
 	if h.store == nil {
 		writeError(w, http.StatusServiceUnavailable, "store unavailable")
@@ -127,6 +165,22 @@ func (h handler) createUser(w http.ResponseWriter, r *http.Request) {
 	}
 	user.PasswordHash = ""
 	writeJSON(w, http.StatusCreated, user)
+}
+
+func (h handler) listUsers(w http.ResponseWriter, r *http.Request) {
+	if h.store == nil {
+		writeError(w, http.StatusServiceUnavailable, "store unavailable")
+		return
+	}
+	users, err := h.store.ListUsers(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "list users failed")
+		return
+	}
+	for i := range users {
+		users[i].PasswordHash = ""
+	}
+	writeJSON(w, http.StatusOK, users)
 }
 
 func (h handler) getDomainDNS(w http.ResponseWriter, r *http.Request) {
