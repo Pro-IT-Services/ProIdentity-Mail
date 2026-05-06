@@ -64,7 +64,7 @@ func main() {
 	case "backup-verify":
 		runBackupVerify(flag.Args()[1:])
 	case "restore":
-		runRestore(flag.Args()[1:])
+		runRestore(cfg, flag.Args()[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command %q\n", flag.Arg(0))
 		os.Exit(2)
@@ -481,12 +481,19 @@ func runBackupVerify(args []string) {
 	fmt.Printf("backup_verified archive=%s entries=%d files=%d bytes=%d\n", *archive, summary.Entries, summary.Files, summary.Bytes)
 }
 
-func runRestore(args []string) {
+func runRestore(cfg app.Config, args []string) {
 	flags := flag.NewFlagSet("restore", flag.ExitOnError)
 	archive := flags.String("archive", "", "backup archive path")
 	targetRoot := flags.String("target-root", "", "restore target root or staging directory")
-	apply := flags.Bool("apply", false, "actually extract backup; without this restore only verifies")
+	stageDir := flags.String("stage-dir", "", "live restore staging directory; defaults to a temporary directory")
+	apply := flags.Bool("apply", false, "actually restore; without this restore only verifies")
+	live := flags.Bool("live", false, "restore into configured live paths, import database, and restart services")
 	overwrite := flags.Bool("overwrite", false, "allow overwrite while extracting")
+	importDB := flags.Bool("import-db", true, "import database dump during --live restore")
+	serviceControl := flags.Bool("service-control", true, "stop and restart services during --live restore")
+	fixPermissions := flags.Bool("fix-permissions", true, "repair ownership and permissions during --live restore")
+	healthCheck := flags.Bool("health-check", true, "run mailctl health after --live restore")
+	keepStaging := flags.Bool("keep-staging", false, "keep live restore staging directory")
 	if err := flags.Parse(args); err != nil {
 		log.Fatalf("parse restore flags: %v", err)
 	}
@@ -501,6 +508,33 @@ func runRestore(args []string) {
 		fmt.Printf("restore_dry_run archive=%s entries=%d files=%d bytes=%d\n", *archive, summary.Entries, summary.Files, summary.Bytes)
 		return
 	}
+	if *live {
+		options := backup.LiveRestoreOptions{
+			ArchivePath:      *archive,
+			StagingDir:       *stageDir,
+			Mappings:         liveRestoreMappings(cfg),
+			DatabaseName:     cfg.DBName,
+			DatabasePassword: cfg.DBPassword,
+			ImportDatabase:   *importDB,
+			ControlServices:  *serviceControl,
+			Services:         liveRestoreServices(),
+			Runner:           backup.ExecRunner{},
+			Overwrite:        *overwrite,
+			KeepStaging:      *keepStaging,
+		}
+		if *fixPermissions {
+			options.Permissions = liveRestorePermissions(cfg)
+		}
+		result, err := backup.RestoreLive(context.Background(), options)
+		if err != nil {
+			log.Fatalf("live restore failed: %v", err)
+		}
+		fmt.Printf("restore_live archive=%s staging=%s files=%d bytes=%d database_imported=%t permissions_fixed=%t services_restarted=%t\n", *archive, result.StagingDir, result.Files, result.Bytes, result.DatabaseImported, result.PermissionsFixed, result.ServicesStarted)
+		if *healthCheck {
+			runHealth()
+		}
+		return
+	}
 	if *targetRoot == "" {
 		log.Fatal("-target-root is required when --apply is used")
 	}
@@ -508,6 +542,34 @@ func runRestore(args []string) {
 		log.Fatalf("restore failed: %v", err)
 	}
 	fmt.Printf("restore_extracted archive=%s target=%s files=%d bytes=%d\n", *archive, *targetRoot, summary.Files, summary.Bytes)
+}
+
+func liveRestoreMappings(cfg app.Config) []backup.LiveMapping {
+	return []backup.LiveMapping{
+		{Source: "etc-proidentity-mail", Target: "/etc/proidentity-mail"},
+		{Source: "maildir", Target: cfg.MailRoot},
+		{Source: "quarantine", Target: cfg.QuarantineDir},
+		{Source: "generated-config", Target: cfg.ConfigDir},
+		{Source: "rspamd-dkim", Target: "/var/lib/rspamd/dkim"},
+		{Source: "nginx-proidentity", Target: "/etc/nginx/proidentity"},
+		{Source: "nginx-conf/proidentity.conf", Target: "/etc/nginx/conf.d/proidentity.conf"},
+		{Source: "certbot", Target: "/etc/letsencrypt"},
+	}
+}
+
+func liveRestorePermissions(cfg app.Config) []backup.PermissionRule {
+	return []backup.PermissionRule{
+		{Path: "/etc/proidentity-mail", Owner: "proidentity", Group: "proidentity", DirMode: 0750, FileMode: 0640, Recursive: true},
+		{Path: cfg.MailRoot, Owner: "vmail", Group: "vmail", DirMode: 0750, FileMode: 0640, Recursive: true},
+		{Path: cfg.QuarantineDir, Owner: "proidentity", Group: "proidentity", DirMode: 0750, FileMode: 0640, Recursive: true},
+		{Path: "/var/lib/rspamd/dkim", Owner: "_rspamd", Group: "_rspamd", DirMode: 0750, FileMode: 0640, Recursive: true},
+		{Path: "/etc/nginx/proidentity", Owner: "root", Group: "root", DirMode: 0755, FileMode: 0644, Recursive: true},
+		{Path: "/etc/nginx/conf.d/proidentity.conf", Owner: "root", Group: "root", FileMode: 0644},
+	}
+}
+
+func liveRestoreServices() []string {
+	return []string{"postfix", "dovecot", "rspamd", "nginx", "proidentity-webadmin", "proidentity-webmail", "proidentity-groupware"}
 }
 
 func backupSources(cfg app.Config) []backup.Source {
