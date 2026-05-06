@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -67,6 +68,61 @@ func TestListEndpoints(t *testing.T) {
 		}
 		if !bytes.Contains(rec.Body.Bytes(), []byte(tt.want)) {
 			t.Fatalf("%s response missing %q: %s", tt.path, tt.want, rec.Body.String())
+		}
+	}
+}
+
+func TestMailAutoconfigEndpoint(t *testing.T) {
+	handler := NewRouter(&fakeStore{})
+	req := httptest.NewRequest(http.MethodGet, "/.well-known/autoconfig/mail/config-v1.1.xml?emailaddress=marko@example.com", nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if got := rec.Header().Get("Content-Type"); got != "application/xml; charset=utf-8" {
+		t.Fatalf("content-type = %q, want xml", got)
+	}
+	body := rec.Body.String()
+	for _, want := range []string{
+		"<emailProvider id=\"example.com\">",
+		"<incomingServer type=\"imap\">",
+		"<hostname>mail.example.com</hostname>",
+		"<outgoingServer type=\"smtp\">",
+		"<port>587</port>",
+	} {
+		if !bytes.Contains([]byte(body), []byte(want)) {
+			t.Fatalf("autoconfig missing %q: %s", want, body)
+		}
+	}
+}
+
+func TestWellKnownGroupwareRedirects(t *testing.T) {
+	handler := NewRouter(&fakeStore{})
+	for _, tt := range []struct {
+		method string
+		path   string
+	}{
+		{method: http.MethodGet, path: "/.well-known/caldav"},
+		{method: http.MethodGet, path: "/.well-known/carddav"},
+		{method: http.MethodHead, path: "/.well-known/caldav"},
+		{method: http.MethodHead, path: "/.well-known/carddav"},
+	} {
+		req := httptest.NewRequest(tt.method, tt.path, nil)
+		rec := httptest.NewRecorder()
+
+		handler.ServeHTTP(rec, req)
+		response := rec.Result()
+		defer response.Body.Close()
+		_, _ = io.Copy(io.Discard, response.Body)
+
+		if response.StatusCode != http.StatusTemporaryRedirect {
+			t.Fatalf("%s %s status = %d, want %d", tt.method, tt.path, response.StatusCode, http.StatusTemporaryRedirect)
+		}
+		if location := response.Header.Get("Location"); location != "/dav/" {
+			t.Fatalf("%s %s location = %q, want /dav/", tt.method, tt.path, location)
 		}
 	}
 }

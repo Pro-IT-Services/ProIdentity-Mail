@@ -3,8 +3,11 @@ package admin
 import (
 	"context"
 	"encoding/json"
+	"encoding/xml"
+	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 
@@ -31,6 +34,12 @@ func NewRouter(store Store) http.Handler {
 	r := chi.NewRouter()
 	r.Get("/", h.index)
 	r.Get("/healthz", health)
+	r.Get("/.well-known/autoconfig/mail/config-v1.1.xml", h.mailAutoconfig)
+	r.Get("/mail/config-v1.1.xml", h.mailAutoconfig)
+	r.Get("/.well-known/caldav", wellKnownDAV)
+	r.Head("/.well-known/caldav", wellKnownDAV)
+	r.Get("/.well-known/carddav", wellKnownDAV)
+	r.Head("/.well-known/carddav", wellKnownDAV)
 	r.Get("/api/v1/tenants", h.listTenants)
 	r.Post("/api/v1/tenants", h.createTenant)
 	r.Get("/api/v1/domains", h.listDomains)
@@ -49,6 +58,58 @@ func health(w http.ResponseWriter, r *http.Request) {
 func (h handler) index(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = w.Write([]byte(adminIndexHTML))
+}
+
+func (h handler) mailAutoconfig(w http.ResponseWriter, r *http.Request) {
+	email := r.URL.Query().Get("emailaddress")
+	at := strings.LastIndex(email, "@")
+	if at <= 0 || at == len(email)-1 {
+		writeError(w, http.StatusBadRequest, "emailaddress is required")
+		return
+	}
+	domainName := strings.ToLower(email[at+1:])
+	host := "mail." + domainName
+	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+	_, _ = fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?>
+<clientConfig version="1.1">
+  <emailProvider id="%s">
+    <domain>%s</domain>
+    <displayName>ProIdentity Mail</displayName>
+    <displayShortName>ProIdentity</displayShortName>
+    <incomingServer type="imap">
+      <hostname>%s</hostname>
+      <port>993</port>
+      <socketType>SSL</socketType>
+      <authentication>password-cleartext</authentication>
+      <username>%%EMAILADDRESS%%</username>
+    </incomingServer>
+    <incomingServer type="pop3">
+      <hostname>%s</hostname>
+      <port>995</port>
+      <socketType>SSL</socketType>
+      <authentication>password-cleartext</authentication>
+      <username>%%EMAILADDRESS%%</username>
+    </incomingServer>
+    <outgoingServer type="smtp">
+      <hostname>%s</hostname>
+      <port>587</port>
+      <socketType>STARTTLS</socketType>
+      <authentication>password-cleartext</authentication>
+      <username>%%EMAILADDRESS%%</username>
+    </outgoingServer>
+  </emailProvider>
+</clientConfig>
+`, xmlEscape(domainName), xmlEscape(domainName), xmlEscape(host), xmlEscape(host), xmlEscape(host))
+}
+
+func wellKnownDAV(w http.ResponseWriter, r *http.Request) {
+	http.Redirect(w, r, "/dav/", http.StatusTemporaryRedirect)
+}
+
+func xmlEscape(value string) string {
+	var builder strings.Builder
+	_ = xml.EscapeText(&builder, []byte(value))
+	return builder.String()
 }
 
 func (h handler) listTenants(w http.ResponseWriter, r *http.Request) {
