@@ -437,9 +437,9 @@ const webmailIndexHTML = `<!doctype html>
         <button class="tool-button" type="button" id="mark-ham" title="Mark as not spam"><span class="material-symbols-outlined">verified</span></button>
         <button class="tool-button" type="button" id="trash-message" title="Delete"><span class="material-symbols-outlined">delete</span></button>
         <span style="height:24px;width:1px;background:var(--outline)"></span>
-        <button class="tool-button" type="button" title="Reply"><span class="material-symbols-outlined">reply</span></button>
-        <button class="tool-button" type="button" title="Reply all"><span class="material-symbols-outlined">reply_all</span></button>
-        <button class="tool-button" type="button" title="Forward"><span class="material-symbols-outlined">forward</span></button>
+        <button class="tool-button" type="button" id="reply-message" title="Reply"><span class="material-symbols-outlined">reply</span></button>
+        <button class="tool-button" type="button" id="reply-all-message" title="Reply all"><span class="material-symbols-outlined">reply_all</span></button>
+        <button class="tool-button" type="button" id="forward-message" title="Forward"><span class="material-symbols-outlined">forward</span></button>
       </div>
       <div class="security-strip">
         <div class="security-items">
@@ -523,6 +523,14 @@ const webmailIndexHTML = `<!doctype html>
     };
     const shortFrom = value => String(value || "Unknown").replace(/<.*>/, "").replace(/"/g, "").trim() || "Unknown";
     const serviceBase = () => location.origin.replace(/^http:/, "https:");
+    const emailOnly = value => {
+      const match = String(value || "").match(/<([^>]+)>/);
+      return (match ? match[1] : String(value || "")).replace(/"/g, "").trim();
+    };
+    const prefixedSubject = (prefix, subject) => {
+      const text = String(subject || "");
+      return text.toLowerCase().startsWith(prefix.toLowerCase()) ? text : prefix + text;
+    };
     const api = async (path, options = {}) => {
       const response = await fetch(path, {credentials: "same-origin", cache: "no-store", ...options, headers: {"Content-Type": "application/json", ...(state.csrf ? {"X-CSRF-Token": state.csrf} : {}), ...(options.headers || {})}});
       if (!response.ok) {
@@ -651,6 +659,29 @@ const webmailIndexHTML = `<!doctype html>
       if (!response.ok) throw new Error("Message report failed");
       await loadMessages();
     }
+    async function selectedDetail() {
+      if (!state.selected) throw new Error("Select a message first");
+      const response = await fetch("/api/v1/messages/" + encodeURIComponent(state.selected.id), {credentials: "same-origin", cache: "no-store"});
+      return response.ok ? response.json() : state.selected;
+    }
+    async function openResponse(mode) {
+      const item = await selectedDetail();
+      const form = document.querySelector("#compose-modal");
+      const sender = emailOnly(item.from || state.selected.from);
+      const originalBody = String(item.body || state.selected.preview || "");
+      form.reset();
+      if (mode === "forward") {
+        form.elements.to.value = "";
+        form.elements.subject.value = prefixedSubject("Fwd: ", item.subject || state.selected.subject || "");
+        form.elements.body.value = "\n\nForwarded message\nFrom: " + (item.from || state.selected.from || "") + "\nTo: " + (item.to || state.selected.to || state.email || "") + "\n\n" + originalBody;
+      } else {
+        form.elements.to.value = sender;
+        form.elements.subject.value = prefixedSubject("Re: ", item.subject || state.selected.subject || "");
+        form.elements.body.value = "\n\nOn " + messageTime(item) + ", " + (item.from || sender) + " wrote:\n" + originalBody.split("\n").map(line => "> " + line).join("\n");
+      }
+      document.querySelector("#compose-error").textContent = "";
+      form.classList.remove("hidden");
+    }
     function filteredMessages() {
       const q = document.querySelector("#search").value.trim().toLowerCase();
       if (!q) return state.messages;
@@ -701,7 +732,12 @@ const webmailIndexHTML = `<!doctype html>
         document.querySelector("#error").textContent = error.message;
       }
     });
-    document.querySelector(".compose").addEventListener("click", () => document.querySelector("#compose-modal").classList.remove("hidden"));
+    document.querySelector(".compose").addEventListener("click", () => {
+      const form = document.querySelector("#compose-modal");
+      form.reset();
+      document.querySelector("#compose-error").textContent = "";
+      form.classList.remove("hidden");
+    });
     document.querySelector("#close-compose").addEventListener("click", () => document.querySelector("#compose-modal").classList.add("hidden"));
     document.querySelector("#close-contact").addEventListener("click", () => document.querySelector("#contact-modal").classList.add("hidden"));
     document.querySelector("#cancel-contact").addEventListener("click", () => document.querySelector("#contact-modal").classList.add("hidden"));
@@ -729,6 +765,9 @@ const webmailIndexHTML = `<!doctype html>
     document.querySelector("#mark-ham").addEventListener("click", () => reportSelected("ham").catch(error => alert(error.message)));
     document.querySelector("#archive-message").addEventListener("click", () => moveSelected("archive").catch(error => alert(error.message)));
     document.querySelector("#trash-message").addEventListener("click", () => moveSelected("trash").catch(error => alert(error.message)));
+    document.querySelector("#reply-message").addEventListener("click", () => openResponse("reply").catch(error => alert(error.message)));
+    document.querySelector("#reply-all-message").addEventListener("click", () => openResponse("reply").catch(error => alert(error.message)));
+    document.querySelector("#forward-message").addEventListener("click", () => openResponse("forward").catch(error => alert(error.message)));
     document.querySelector("#open-contacts").addEventListener("click", () => loadContactsView().catch(error => alert(error.message)));
     document.querySelector("#open-calendar").addEventListener("click", () => loadCalendarView().catch(error => alert(error.message)));
     document.querySelectorAll("[data-folder]").forEach(item => item.addEventListener("click", async () => {
