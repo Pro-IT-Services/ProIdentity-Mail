@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"proidentity-mail/internal/domain"
@@ -139,7 +140,7 @@ func (s SQLStore) ListUsers(ctx context.Context) ([]domain.User, error) {
 
 func (s SQLStore) ListQuarantineEvents(ctx context.Context) ([]domain.QuarantineEvent, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, tenant_id, user_id, domain_id, message_id, sender, recipient, verdict, action, scanner, CAST(symbols_json AS CHAR), created_at
+		SELECT id, tenant_id, user_id, domain_id, message_id, sender, recipient, verdict, action, scanner, CAST(symbols_json AS CHAR), status, resolved_at, resolution_note, created_at
 		FROM quarantine_events
 		ORDER BY created_at DESC, id DESC
 		LIMIT 500`)
@@ -155,7 +156,9 @@ func (s SQLStore) ListQuarantineEvents(ctx context.Context) ([]domain.Quarantine
 		var domainID sql.NullInt64
 		var messageID sql.NullString
 		var sender sql.NullString
-		if err := rows.Scan(&event.ID, &event.TenantID, &userID, &domainID, &messageID, &sender, &event.Recipient, &event.Verdict, &event.Action, &event.Scanner, &event.SymbolsJSON, &event.CreatedAt); err != nil {
+		var resolvedAt sql.NullTime
+		var resolutionNote sql.NullString
+		if err := rows.Scan(&event.ID, &event.TenantID, &userID, &domainID, &messageID, &sender, &event.Recipient, &event.Verdict, &event.Action, &event.Scanner, &event.SymbolsJSON, &event.Status, &resolvedAt, &resolutionNote, &event.CreatedAt); err != nil {
 			return nil, err
 		}
 		if userID.Valid {
@@ -172,9 +175,102 @@ func (s SQLStore) ListQuarantineEvents(ctx context.Context) ([]domain.Quarantine
 		if sender.Valid {
 			event.Sender = sender.String
 		}
+		if resolvedAt.Valid {
+			event.ResolvedAt = &resolvedAt.Time
+		}
+		if resolutionNote.Valid {
+			event.ResolutionNote = resolutionNote.String
+		}
 		events = append(events, event)
 	}
 	return events, rows.Err()
+}
+
+func (s SQLStore) ResolveQuarantineEvent(ctx context.Context, eventID uint64, status, note string) (domain.QuarantineEvent, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return domain.QuarantineEvent{}, err
+	}
+	defer tx.Rollback()
+
+	result, err := tx.ExecContext(ctx, `
+		UPDATE quarantine_events
+		SET status = ?, resolved_at = CURRENT_TIMESTAMP, resolution_note = NULLIF(?, '')
+		WHERE id = ?
+		  AND status = 'held'`, status, note, eventID)
+	if err != nil {
+		return domain.QuarantineEvent{}, err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return domain.QuarantineEvent{}, err
+	}
+	if affected == 0 {
+		return domain.QuarantineEvent{}, sql.ErrNoRows
+	}
+
+	event, err := scanQuarantineEvent(ctx, tx, eventID)
+	if err != nil {
+		return domain.QuarantineEvent{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO audit_events(tenant_id, actor_type, action, target_type, target_id, metadata_json)
+		VALUES (?, 'admin', ?, 'quarantine_event', ?, JSON_OBJECT('status', ?, 'recipient', ?, 'note', ?))`,
+		event.TenantID,
+		"quarantine."+status,
+		strconv.FormatUint(eventID, 10),
+		status,
+		event.Recipient,
+		note,
+	); err != nil {
+		return domain.QuarantineEvent{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return domain.QuarantineEvent{}, err
+	}
+	return event, nil
+}
+
+type quarantineQuerier interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+
+func scanQuarantineEvent(ctx context.Context, q quarantineQuerier, eventID uint64) (domain.QuarantineEvent, error) {
+	var event domain.QuarantineEvent
+	var userID sql.NullInt64
+	var domainID sql.NullInt64
+	var messageID sql.NullString
+	var sender sql.NullString
+	var resolvedAt sql.NullTime
+	var resolutionNote sql.NullString
+	err := q.QueryRowContext(ctx, `
+		SELECT id, tenant_id, user_id, domain_id, message_id, sender, recipient, verdict, action, scanner, CAST(symbols_json AS CHAR), status, resolved_at, resolution_note, created_at
+		FROM quarantine_events
+		WHERE id = ?`, eventID).Scan(&event.ID, &event.TenantID, &userID, &domainID, &messageID, &sender, &event.Recipient, &event.Verdict, &event.Action, &event.Scanner, &event.SymbolsJSON, &event.Status, &resolvedAt, &resolutionNote, &event.CreatedAt)
+	if err != nil {
+		return domain.QuarantineEvent{}, err
+	}
+	if userID.Valid {
+		id := uint64(userID.Int64)
+		event.UserID = &id
+	}
+	if domainID.Valid {
+		id := uint64(domainID.Int64)
+		event.DomainID = &id
+	}
+	if messageID.Valid {
+		event.MessageID = messageID.String
+	}
+	if sender.Valid {
+		event.Sender = sender.String
+	}
+	if resolvedAt.Valid {
+		event.ResolvedAt = &resolvedAt.Time
+	}
+	if resolutionNote.Valid {
+		event.ResolutionNote = resolutionNote.String
+	}
+	return event, nil
 }
 
 func (s SQLStore) ListAuditEvents(ctx context.Context) ([]domain.AuditEvent, error) {

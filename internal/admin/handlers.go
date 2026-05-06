@@ -24,6 +24,7 @@ type Store interface {
 	CreateUser(ctx context.Context, user domain.User) (domain.User, error)
 	ListUsers(ctx context.Context) ([]domain.User, error)
 	ListQuarantineEvents(ctx context.Context) ([]domain.QuarantineEvent, error)
+	ResolveQuarantineEvent(ctx context.Context, eventID uint64, status, note string) (domain.QuarantineEvent, error)
 	ListAuditEvents(ctx context.Context) ([]domain.AuditEvent, error)
 	ListTenantPolicies(ctx context.Context) ([]domain.TenantPolicy, error)
 	UpdateTenantPolicy(ctx context.Context, policy domain.TenantPolicy) (domain.TenantPolicy, error)
@@ -65,6 +66,8 @@ func NewRouter(store Store, authConfig ...AuthConfig) http.Handler {
 		protected.Get("/api/v1/users", h.listUsers)
 		protected.Post("/api/v1/users", h.createUser)
 		protected.Get("/api/v1/quarantine", h.listQuarantineEvents)
+		protected.Post("/api/v1/quarantine/{eventID}/release", h.releaseQuarantineEvent)
+		protected.Post("/api/v1/quarantine/{eventID}/delete", h.deleteQuarantineEvent)
 		protected.Get("/api/v1/audit", h.listAuditEvents)
 		protected.Get("/api/v1/policies", h.listTenantPolicies)
 		protected.Put("/api/v1/policies/{tenantID}", h.updateTenantPolicy)
@@ -311,6 +314,39 @@ func (h handler) listQuarantineEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, events)
+}
+
+func (h handler) releaseQuarantineEvent(w http.ResponseWriter, r *http.Request) {
+	h.resolveQuarantineEvent(w, r, "released")
+}
+
+func (h handler) deleteQuarantineEvent(w http.ResponseWriter, r *http.Request) {
+	h.resolveQuarantineEvent(w, r, "deleted")
+}
+
+func (h handler) resolveQuarantineEvent(w http.ResponseWriter, r *http.Request, status string) {
+	if h.store == nil {
+		writeError(w, http.StatusServiceUnavailable, "store unavailable")
+		return
+	}
+	eventID, err := strconv.ParseUint(chi.URLParam(r, "eventID"), 10, 64)
+	if err != nil || eventID == 0 {
+		writeError(w, http.StatusBadRequest, "valid quarantine event id is required")
+		return
+	}
+	var req struct {
+		ResolutionNote string `json:"resolution_note"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && r.Body != http.NoBody {
+		writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	event, err := h.store.ResolveQuarantineEvent(r.Context(), eventID, status, strings.TrimSpace(req.ResolutionNote))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "resolve quarantine event failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, event)
 }
 
 func (h handler) listAuditEvents(w http.ResponseWriter, r *http.Request) {

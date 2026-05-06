@@ -297,6 +297,23 @@ func TestQuarantineEndpointRequiresConfiguredAuth(t *testing.T) {
 	}
 }
 
+func TestResolveQuarantineEndpointReleasesEvent(t *testing.T) {
+	store := &fakeStore{}
+	handler := NewRouter(store)
+	body := bytes.NewBufferString(`{"resolution_note":"false positive"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/quarantine/44/release", body)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if store.resolvedQuarantineID != 44 || store.resolvedQuarantineStatus != "released" || store.resolvedQuarantineNote != "false positive" {
+		t.Fatalf("unexpected resolution: id=%d status=%q note=%q", store.resolvedQuarantineID, store.resolvedQuarantineStatus, store.resolvedQuarantineNote)
+	}
+}
+
 func TestNormalizeDKIMTXTExtractsTXTValue(t *testing.T) {
 	raw := "mail._domainkey IN TXT ( \"v=DKIM1; k=rsa; \"\n\t\"p=abc123\"\n) ;"
 	got := normalizeDKIMTXT(raw)
@@ -307,10 +324,13 @@ func TestNormalizeDKIMTXTExtractsTXTValue(t *testing.T) {
 }
 
 type fakeStore struct {
-	tenant     domain.Tenant
-	mailDomain domain.Domain
-	user       domain.User
-	policy     domain.TenantPolicy
+	tenant                   domain.Tenant
+	mailDomain               domain.Domain
+	user                     domain.User
+	policy                   domain.TenantPolicy
+	resolvedQuarantineID     uint64
+	resolvedQuarantineStatus string
+	resolvedQuarantineNote   string
 }
 
 func (s *fakeStore) CreateTenant(ctx context.Context, tenant domain.Tenant) (domain.Tenant, error) {
@@ -355,7 +375,15 @@ func (s *fakeStore) ListQuarantineEvents(ctx context.Context) ([]domain.Quaranti
 		Action:      "quarantine",
 		Scanner:     "ClamAV",
 		SymbolsJSON: `{"signature":"EICAR-Test-Signature"}`,
+		Status:      "held",
 	}}, nil
+}
+
+func (s *fakeStore) ResolveQuarantineEvent(ctx context.Context, eventID uint64, status, note string) (domain.QuarantineEvent, error) {
+	s.resolvedQuarantineID = eventID
+	s.resolvedQuarantineStatus = status
+	s.resolvedQuarantineNote = note
+	return domain.QuarantineEvent{ID: eventID, TenantID: 11, Recipient: "marko@example.com", Verdict: "malware", Action: "quarantine", Scanner: "ClamAV", SymbolsJSON: `{}`, Status: status, ResolutionNote: note}, nil
 }
 
 func (s *fakeStore) ListAuditEvents(ctx context.Context) ([]domain.AuditEvent, error) {

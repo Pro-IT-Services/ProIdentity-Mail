@@ -472,7 +472,7 @@ const adminIndexHTML = `<!doctype html>
 
       <section class="card panel hidden" id="quarantine-panel">
         <div class="panel-head"><h3>Quarantine Events</h3><div class="panel-actions"><button class="secondary-button" id="refresh-quarantine"><span class="material-symbols-outlined">refresh</span>Refresh</button></div></div>
-        <div class="table-wrap"><table><thead><tr><th>Verdict</th><th>Recipient</th><th>Sender</th><th>Scanner</th><th>Action</th><th>Symbols</th><th>Date</th></tr></thead><tbody id="quarantine"></tbody></table></div>
+        <div class="table-wrap"><table><thead><tr><th>Verdict</th><th>Recipient</th><th>Sender</th><th>Scanner</th><th>Status</th><th>Symbols</th><th>Date</th><th>Actions</th></tr></thead><tbody id="quarantine"></tbody></table></div>
       </section>
 
       <section class="card panel hidden" id="audit-panel">
@@ -533,7 +533,7 @@ const adminIndexHTML = `<!doctype html>
         "<tr><td><div class=\"identity\"><span class=\"initials\">" + esc(initials(item.display_name || item.local_part)) + "</span><div><strong>" + esc(item.display_name || item.local_part) + "</strong><div class=\"muted\">" + esc(item.local_part) + "</div></div></div></td><td>" + esc(item.tenant_id) + "</td><td>" + esc(item.primary_domain_id) + "</td><td>" + badge(item.status) + "</td><td>" + esc(quotaText(item.quota_bytes)) + "</td></tr>"
       ).join("");
       document.querySelector("#quarantine").innerHTML = filtered(state.quarantine, ["recipient","sender","verdict","action","scanner","symbols_json"]).map(item =>
-        "<tr><td>" + badge(item.verdict) + "</td><td><strong>" + esc(item.recipient) + "</strong><div class=\"muted\">Tenant " + esc(item.tenant_id) + "</div></td><td class=\"muted\">" + esc(item.sender || "-") + "</td><td>" + esc(item.scanner) + "</td><td>" + esc(item.action) + "</td><td><code>" + esc(item.symbols_json || "{}") + "</code></td><td>" + esc(dateText(item.created_at)) + "</td></tr>"
+        "<tr><td>" + badge(item.verdict) + "</td><td><strong>" + esc(item.recipient) + "</strong><div class=\"muted\">Tenant " + esc(item.tenant_id) + "</div></td><td class=\"muted\">" + esc(item.sender || "-") + "</td><td>" + esc(item.scanner) + "</td><td>" + badge(item.status || "held") + "</td><td><code>" + esc(item.symbols_json || "{}") + "</code></td><td>" + esc(dateText(item.created_at)) + "</td><td>" + quarantineActions(item) + "</td></tr>"
       ).join("");
       document.querySelector("#audit").innerHTML = filtered(state.audit, ["actor_type","action","target_type","target_id","metadata_json"]).map(item =>
         "<tr><td><strong>" + esc(item.action) + "</strong></td><td>" + esc(item.actor_type) + "<div class=\"muted\">" + esc(item.actor_id || "-") + "</div></td><td>" + esc(item.target_type) + "<div class=\"muted\">" + esc(item.target_id) + "</div></td><td>" + esc(item.tenant_id || "-") + "</td><td><code>" + esc(item.metadata_json || "{}") + "</code></td><td>" + esc(dateText(item.created_at)) + "</td></tr>"
@@ -590,6 +590,7 @@ const adminIndexHTML = `<!doctype html>
       }
     }
     const selected = (current, value) => current === value ? "selected" : "";
+    const quarantineActions = item => (item.status && item.status !== "held") ? "<span class=\"muted\">" + esc(item.resolution_note || "resolved") + "</span>" : "<div class=\"panel-actions\"><button class=\"secondary-button\" data-quarantine-action=\"release\" data-quarantine-id=\"" + esc(item.id) + "\"><span class=\"material-symbols-outlined\">outbox</span>Release</button><button class=\"secondary-button\" data-quarantine-action=\"delete\" data-quarantine-id=\"" + esc(item.id) + "\"><span class=\"material-symbols-outlined\">delete</span>Delete</button></div>";
     async function savePolicy(tenantID) {
       const fields = document.querySelectorAll("[data-policy='" + CSS.escape(String(tenantID)) + "']");
       const body = {tenant_id: Number(tenantID)};
@@ -600,6 +601,12 @@ const adminIndexHTML = `<!doctype html>
       await api("/api/v1/policies/" + tenantID, {method: "PUT", body: JSON.stringify(body)});
       await refresh();
       showStatus("Policy saved");
+    }
+    async function resolveQuarantine(id, action) {
+      const note = action === "release" ? "released by admin" : "deleted by admin";
+      await api("/api/v1/quarantine/" + id + "/" + action, {method: "POST", body: JSON.stringify({resolution_note: note})});
+      await refresh();
+      showStatus("Quarantine event " + action + "d");
     }
     async function loadDNS(id) {
       try {
@@ -623,6 +630,7 @@ const adminIndexHTML = `<!doctype html>
     document.querySelector("#refresh-policies").addEventListener("click", () => refresh().catch(error => showStatus(error.message, true)));
     document.addEventListener("click", event => { const id = event.target.closest("[data-dns]")?.dataset.dns; if (id) loadDNS(id); });
     document.addEventListener("click", event => { const id = event.target.closest("[data-save-policy]")?.dataset.savePolicy; if (id) savePolicy(id).catch(error => showStatus(error.message, true)); });
+    document.addEventListener("click", event => { const button = event.target.closest("[data-quarantine-action]"); if (button) resolveQuarantine(button.dataset.quarantineId, button.dataset.quarantineAction).catch(error => showStatus(error.message, true)); });
     searchEl.addEventListener("input", render);
     refresh().catch(error => showStatus(error.message, true));
   </script>
