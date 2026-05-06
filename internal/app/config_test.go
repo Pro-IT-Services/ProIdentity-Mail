@@ -8,6 +8,7 @@ func TestLoadConfigDefaults(t *testing.T) {
 	t.Setenv("PROIDENTITY_DB_USER", "")
 	t.Setenv("PROIDENTITY_DB_PASSWORD", "")
 	t.Setenv("PROIDENTITY_HTTP_ADDR", "")
+	t.Setenv("PROIDENTITY_GROUPWARE_ADDR", "")
 	t.Setenv("PROIDENTITY_CONFIG_DIR", "")
 	t.Setenv("PROIDENTITY_MAIL_HOSTNAME", "")
 
@@ -17,6 +18,9 @@ func TestLoadConfigDefaults(t *testing.T) {
 	}
 	if cfg.HTTPAddr != "0.0.0.0:8080" {
 		t.Fatalf("HTTPAddr = %q, want default", cfg.HTTPAddr)
+	}
+	if cfg.GroupwareAddr != "0.0.0.0:8081" {
+		t.Fatalf("GroupwareAddr = %q, want default", cfg.GroupwareAddr)
 	}
 	if cfg.ConfigDir != "/etc/proidentity-mail/generated" {
 		t.Fatalf("ConfigDir = %q, want default", cfg.ConfigDir)

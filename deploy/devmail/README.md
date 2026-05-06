@@ -33,7 +33,7 @@ Copy `proidentity-mail.env.example` to `/etc/proidentity-mail/proidentity-mail.e
 
 ```bash
 systemctl daemon-reload
-systemctl enable --now proidentity-webadmin
+systemctl enable --now proidentity-webadmin proidentity-groupware
 systemctl start proidentity-mailctl
 ```
 

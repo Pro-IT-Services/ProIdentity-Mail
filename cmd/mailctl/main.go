@@ -127,6 +127,7 @@ func runHealth() {
 		health.TCP(ctx, "pop3", "127.0.0.1:110"),
 		health.TCP(ctx, "rspamd", "127.0.0.1:11334"),
 		health.TCP(ctx, "redis", "127.0.0.1:6379"),
+		health.TCP(ctx, "groupware", "127.0.0.1:8081"),
 		health.Unix(ctx, "clamav", "/run/clamav/clamd.ctl"),
 	}
 	for _, result := range results {
