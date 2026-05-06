@@ -97,6 +97,7 @@ func TestListEndpoints(t *testing.T) {
 		{path: "/api/v1/users", want: "marko"},
 		{path: "/api/v1/quarantine", want: "EICAR"},
 		{path: "/api/v1/audit", want: "message.report_spam"},
+		{path: "/api/v1/policies", want: "quarantine"},
 	}
 
 	for _, tt := range tests {
@@ -267,6 +268,23 @@ func TestDomainDNSEndpoint(t *testing.T) {
 	}
 }
 
+func TestUpdateTenantPolicyEndpoint(t *testing.T) {
+	store := &fakeStore{}
+	handler := NewRouter(store)
+	body := bytes.NewBufferString(`{"tenant_id":11,"spam_action":"quarantine","malware_action":"reject","require_tls_for_auth":true}`)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/policies/11", body)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if store.policy.TenantID != 11 || store.policy.SpamAction != "quarantine" || store.policy.MalwareAction != "reject" || !store.policy.RequireTLSForAuth {
+		t.Fatalf("unexpected policy passed to store: %+v", store.policy)
+	}
+}
+
 func TestQuarantineEndpointRequiresConfiguredAuth(t *testing.T) {
 	handler := NewRouter(&fakeStore{}, AuthConfig{Username: "admin", Password: "secret"})
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/quarantine", nil)
@@ -292,6 +310,7 @@ type fakeStore struct {
 	tenant     domain.Tenant
 	mailDomain domain.Domain
 	user       domain.User
+	policy     domain.TenantPolicy
 }
 
 func (s *fakeStore) CreateTenant(ctx context.Context, tenant domain.Tenant) (domain.Tenant, error) {
@@ -348,6 +367,15 @@ func (s *fakeStore) ListAuditEvents(ctx context.Context) ([]domain.AuditEvent, e
 		TargetID:     "1",
 		MetadataJSON: `{"verdict":"spam"}`,
 	}}, nil
+}
+
+func (s *fakeStore) ListTenantPolicies(ctx context.Context) ([]domain.TenantPolicy, error) {
+	return []domain.TenantPolicy{{TenantID: 11, SpamAction: "quarantine", MalwareAction: "quarantine", RequireTLSForAuth: true}}, nil
+}
+
+func (s *fakeStore) UpdateTenantPolicy(ctx context.Context, policy domain.TenantPolicy) (domain.TenantPolicy, error) {
+	s.policy = policy
+	return policy, nil
 }
 
 func (s *fakeStore) GetDomainDNS(ctx context.Context, domainID uint64) (domain.DomainDNS, error) {

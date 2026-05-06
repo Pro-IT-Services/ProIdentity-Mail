@@ -82,3 +82,12 @@ type AuditEvent struct {
 	MetadataJSON string    `json:"metadata_json"`
 	CreatedAt    time.Time `json:"created_at"`
 }
+
+type TenantPolicy struct {
+	TenantID          uint64    `json:"tenant_id"`
+	SpamAction        string    `json:"spam_action"`
+	MalwareAction     string    `json:"malware_action"`
+	RequireTLSForAuth bool      `json:"require_tls_for_auth"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
+}

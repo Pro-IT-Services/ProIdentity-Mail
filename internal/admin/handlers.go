@@ -25,6 +25,8 @@ type Store interface {
 	ListUsers(ctx context.Context) ([]domain.User, error)
 	ListQuarantineEvents(ctx context.Context) ([]domain.QuarantineEvent, error)
 	ListAuditEvents(ctx context.Context) ([]domain.AuditEvent, error)
+	ListTenantPolicies(ctx context.Context) ([]domain.TenantPolicy, error)
+	UpdateTenantPolicy(ctx context.Context, policy domain.TenantPolicy) (domain.TenantPolicy, error)
 	GetDomainDNS(ctx context.Context, domainID uint64) (domain.DomainDNS, error)
 }
 
@@ -64,6 +66,8 @@ func NewRouter(store Store, authConfig ...AuthConfig) http.Handler {
 		protected.Post("/api/v1/users", h.createUser)
 		protected.Get("/api/v1/quarantine", h.listQuarantineEvents)
 		protected.Get("/api/v1/audit", h.listAuditEvents)
+		protected.Get("/api/v1/policies", h.listTenantPolicies)
+		protected.Put("/api/v1/policies/{tenantID}", h.updateTenantPolicy)
 	})
 	return r
 }
@@ -320,6 +324,61 @@ func (h handler) listAuditEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, events)
+}
+
+func (h handler) listTenantPolicies(w http.ResponseWriter, r *http.Request) {
+	if h.store == nil {
+		writeError(w, http.StatusServiceUnavailable, "store unavailable")
+		return
+	}
+	policies, err := h.store.ListTenantPolicies(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "list tenant policies failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, policies)
+}
+
+func (h handler) updateTenantPolicy(w http.ResponseWriter, r *http.Request) {
+	if h.store == nil {
+		writeError(w, http.StatusServiceUnavailable, "store unavailable")
+		return
+	}
+	tenantID, err := strconv.ParseUint(chi.URLParam(r, "tenantID"), 10, 64)
+	if err != nil || tenantID == 0 {
+		writeError(w, http.StatusBadRequest, "valid tenant id is required")
+		return
+	}
+	var req struct {
+		SpamAction        string `json:"spam_action"`
+		MalwareAction     string `json:"malware_action"`
+		RequireTLSForAuth bool   `json:"require_tls_for_auth"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	req.SpamAction = strings.ToLower(strings.TrimSpace(req.SpamAction))
+	req.MalwareAction = strings.ToLower(strings.TrimSpace(req.MalwareAction))
+	if req.SpamAction != "mark" && req.SpamAction != "quarantine" && req.SpamAction != "reject" {
+		writeError(w, http.StatusBadRequest, "spam_action must be mark, quarantine, or reject")
+		return
+	}
+	if req.MalwareAction != "quarantine" && req.MalwareAction != "reject" {
+		writeError(w, http.StatusBadRequest, "malware_action must be quarantine or reject")
+		return
+	}
+	policy, err := h.store.UpdateTenantPolicy(r.Context(), domain.TenantPolicy{
+		TenantID:          tenantID,
+		SpamAction:        req.SpamAction,
+		MalwareAction:     req.MalwareAction,
+		RequireTLSForAuth: req.RequireTLSForAuth,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "update tenant policy failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, policy)
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {

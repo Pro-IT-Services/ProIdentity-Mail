@@ -209,6 +209,44 @@ func (s SQLStore) ListAuditEvents(ctx context.Context) ([]domain.AuditEvent, err
 	return events, rows.Err()
 }
 
+func (s SQLStore) ListTenantPolicies(ctx context.Context) ([]domain.TenantPolicy, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT tenant_id, spam_action, malware_action, require_tls_for_auth, created_at, updated_at
+		FROM tenant_policies
+		ORDER BY tenant_id
+		LIMIT 500`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	policies := make([]domain.TenantPolicy, 0)
+	for rows.Next() {
+		var policy domain.TenantPolicy
+		if err := rows.Scan(&policy.TenantID, &policy.SpamAction, &policy.MalwareAction, &policy.RequireTLSForAuth, &policy.CreatedAt, &policy.UpdatedAt); err != nil {
+			return nil, err
+		}
+		policies = append(policies, policy)
+	}
+	return policies, rows.Err()
+}
+
+func (s SQLStore) UpdateTenantPolicy(ctx context.Context, policy domain.TenantPolicy) (domain.TenantPolicy, error) {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO tenant_policies(tenant_id, spam_action, malware_action, require_tls_for_auth)
+		VALUES (?, ?, ?, ?)
+		ON DUPLICATE KEY UPDATE spam_action = VALUES(spam_action), malware_action = VALUES(malware_action), require_tls_for_auth = VALUES(require_tls_for_auth)`,
+		policy.TenantID,
+		policy.SpamAction,
+		policy.MalwareAction,
+		policy.RequireTLSForAuth,
+	)
+	if err != nil {
+		return domain.TenantPolicy{}, err
+	}
+	return policy, nil
+}
+
 func (s SQLStore) GetDomainDNS(ctx context.Context, domainID uint64) (domain.DomainDNS, error) {
 	var domainName string
 	var selector sql.NullString
