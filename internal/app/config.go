@@ -5,6 +5,7 @@ import "os"
 type Config struct {
 	HTTPAddr      string
 	GroupwareAddr string
+	WebmailAddr   string
 	DBDSN         string
 	DBName        string
 	DBUser        string
@@ -17,6 +18,7 @@ func LoadConfig() (Config, error) {
 	cfg := Config{
 		HTTPAddr:      valueOrDefault(os.Getenv("PROIDENTITY_HTTP_ADDR"), "0.0.0.0:8080"),
 		GroupwareAddr: valueOrDefault(os.Getenv("PROIDENTITY_GROUPWARE_ADDR"), "0.0.0.0:8081"),
+		WebmailAddr:   valueOrDefault(os.Getenv("PROIDENTITY_WEBMAIL_ADDR"), "0.0.0.0:8082"),
 		DBDSN:         os.Getenv("PROIDENTITY_DB_DSN"),
 		DBName:        valueOrDefault(os.Getenv("PROIDENTITY_DB_NAME"), "proidentity_mail"),
 		DBUser:        valueOrDefault(os.Getenv("PROIDENTITY_DB_USER"), "proidentity_mail"),

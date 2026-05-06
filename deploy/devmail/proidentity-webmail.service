@@ -1,0 +1,22 @@
+[Unit]
+Description=ProIdentity Mail Webmail
+After=network-online.target mariadb.service dovecot.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=vmail
+Group=vmail
+SupplementaryGroups=proidentity
+EnvironmentFile=/etc/proidentity-mail/proidentity-mail.env
+ExecStart=/opt/proidentity-mail/bin/webmail
+Restart=on-failure
+RestartSec=5s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadOnlyPaths=/var/vmail
+
+[Install]
+WantedBy=multi-user.target

@@ -7,8 +7,10 @@ mkdir -p /etc/proidentity-mail/generated /opt/proidentity-mail/bin
 install -m 0755 /tmp/webadmin /opt/proidentity-mail/bin/webadmin
 install -m 0755 /tmp/mailctl /opt/proidentity-mail/bin/mailctl
 install -m 0755 /tmp/groupware /opt/proidentity-mail/bin/groupware
+install -m 0755 /tmp/webmail /opt/proidentity-mail/bin/webmail
 install -m 0644 /tmp/proidentity-devmail/proidentity-webadmin.service /etc/systemd/system/proidentity-webadmin.service
 install -m 0644 /tmp/proidentity-devmail/proidentity-groupware.service /etc/systemd/system/proidentity-groupware.service
+install -m 0644 /tmp/proidentity-devmail/proidentity-webmail.service /etc/systemd/system/proidentity-webmail.service
 install -m 0644 /tmp/proidentity-devmail/proidentity-mailctl.service /etc/systemd/system/proidentity-mailctl.service
 install -m 0755 /tmp/proidentity-devmail/apply-mail-config.sh /opt/proidentity-mail/bin/apply-mail-config
 
@@ -25,6 +27,7 @@ SQL
   cat > /etc/proidentity-mail/proidentity-mail.env <<EOF
 PROIDENTITY_HTTP_ADDR=0.0.0.0:8080
 PROIDENTITY_GROUPWARE_ADDR=0.0.0.0:8081
+PROIDENTITY_WEBMAIL_ADDR=0.0.0.0:8082
 PROIDENTITY_DB_NAME=proidentity_mail
 PROIDENTITY_DB_USER=proidentity_mail
 PROIDENTITY_DB_PASSWORD=${db_password}
@@ -38,7 +41,11 @@ fi
 if ! grep -q '^PROIDENTITY_GROUPWARE_ADDR=' /etc/proidentity-mail/proidentity-mail.env; then
   printf '\nPROIDENTITY_GROUPWARE_ADDR=0.0.0.0:8081\n' >> /etc/proidentity-mail/proidentity-mail.env
 fi
+if ! grep -q '^PROIDENTITY_WEBMAIL_ADDR=' /etc/proidentity-mail/proidentity-mail.env; then
+  printf '\nPROIDENTITY_WEBMAIL_ADDR=0.0.0.0:8082\n' >> /etc/proidentity-mail/proidentity-mail.env
+fi
 
+usermod -a -G vmail proidentity || true
 chown -R proidentity:proidentity /etc/proidentity-mail /opt/proidentity-mail
 chmod 0750 /etc/proidentity-mail /etc/proidentity-mail/generated /opt/proidentity-mail /opt/proidentity-mail/bin
 
