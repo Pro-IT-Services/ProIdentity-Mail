@@ -431,10 +431,14 @@ const webmailIndexHTML = `<!doctype html>
         document.querySelector("#reader").innerHTML = "<h2>No messages yet</h2><div class=\"body\">New mail delivered by Postfix and Dovecot will appear here after refresh.</div>";
         return;
       }
-      document.querySelector("#reader").innerHTML =
+      fetch("/api/v1/messages/" + encodeURIComponent(item.id), { headers: { Authorization: "Basic " + state.token } })
+        .then(response => response.ok ? response.json() : item)
+        .then(detail => {
+          document.querySelector("#reader").innerHTML =
         "<h2>" + esc(item.subject || "(no subject)") + "</h2>" +
         "<div class=\"sender-row\"><div class=\"sender\"><div class=\"sender-icon\"><span class=\"material-symbols-outlined\">business</span></div><div><strong>" + esc(shortFrom(item.from)) + "</strong><div class=\"muted\">" + esc(item.from || "") + "</div><div class=\"muted\">To: " + esc(item.to || state.email) + "</div></div></div><div class=\"muted\">" + esc(messageTime(item)) + "</div></div>" +
-        "<div class=\"body\"><p>" + esc(item.preview || "Message preview is empty.") + "</p><div class=\"recommend\"><h3>MESSAGE SUMMARY</h3><ul><li>Mailbox: " + esc(item.mailbox) + "</li><li>Size: " + esc(item.size_bytes) + " bytes</li><li>Message ID: " + esc(item.id) + "</li></ul></div><p>Full MIME rendering, attachments, reply, and compose actions are the next webmail backend slice.</p></div>";
+        "<div class=\"body\"><p>" + esc(detail.body || item.preview || "Message body is empty.").replace(/\n/g, "<br>") + "</p><div class=\"recommend\"><h3>MESSAGE SUMMARY</h3><ul><li>Mailbox: " + esc(item.mailbox) + "</li><li>Size: " + esc(item.size_bytes) + " bytes</li><li>Message ID: " + esc(item.id) + "</li></ul></div></div>";
+        });
     }
     document.querySelector("#login").addEventListener("submit", async event => {
       event.preventDefault();

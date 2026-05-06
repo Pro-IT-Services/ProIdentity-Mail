@@ -7,9 +7,12 @@ domain_id="${3:-2}"
 local_part="davprobe$(date +%s)"
 password="$(openssl rand -hex 12)"
 email="${local_part}@${domain}"
+admin_user="$(grep '^PROIDENTITY_ADMIN_USERNAME=' /etc/proidentity-mail/proidentity-mail.env | cut -d= -f2-)"
+admin_password="$(grep '^PROIDENTITY_ADMIN_PASSWORD=' /etc/proidentity-mail/proidentity-mail.env | cut -d= -f2-)"
 
 curl -sS -m 5 \
   -X POST \
+  -u "${admin_user}:${admin_password}" \
   -H "Content-Type: application/json" \
   --data "{\"tenant_id\":${tenant_id},\"primary_domain_id\":${domain_id},\"local_part\":\"${local_part}\",\"display_name\":\"DAV Probe\",\"password\":\"${password}\"}" \
   http://127.0.0.1:8080/api/v1/users >/tmp/proidentity-dav-user.json

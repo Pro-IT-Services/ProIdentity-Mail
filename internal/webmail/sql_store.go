@@ -46,3 +46,7 @@ func (s CompositeStore) VerifyUserPassword(ctx context.Context, email, password 
 func (s CompositeStore) ListRecentMessages(ctx context.Context, email string, limit int) ([]MessageSummary, error) {
 	return s.Mailbox.ListRecentMessages(ctx, email, limit)
 }
+
+func (s CompositeStore) GetMessage(ctx context.Context, email, id string) (MessageDetail, error) {
+	return s.Mailbox.GetMessage(ctx, email, id)
+}

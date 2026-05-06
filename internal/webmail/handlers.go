@@ -11,6 +11,7 @@ import (
 type Store interface {
 	VerifyUserPassword(ctx context.Context, email, password string) (bool, error)
 	ListRecentMessages(ctx context.Context, email string, limit int) ([]MessageSummary, error)
+	GetMessage(ctx context.Context, email, id string) (MessageDetail, error)
 }
 
 type handler struct {
@@ -22,6 +23,7 @@ func NewRouter(store Store) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", health)
 	mux.HandleFunc("/api/v1/messages", h.messages)
+	mux.HandleFunc("/api/v1/messages/", h.message)
 	mux.HandleFunc("/", index)
 	return mux
 }
@@ -51,6 +53,24 @@ func (h handler) messages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, messages)
+}
+
+func (h handler) message(w http.ResponseWriter, r *http.Request) {
+	email, ok := h.authorized(w, r)
+	if !ok {
+		return
+	}
+	id := strings.TrimPrefix(r.URL.Path, "/api/v1/messages/")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "message id is required")
+		return
+	}
+	message, err := h.store.GetMessage(r.Context(), email, id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "message not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, message)
 }
 
 func (h handler) authorized(w http.ResponseWriter, r *http.Request) (string, bool) {
