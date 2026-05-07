@@ -1082,6 +1082,7 @@ const webmailIndexHTML = `<!doctype html>
     function folderIcon(folder) {
       const id = String(folder.id || "").toLowerCase();
       if (id === "inbox") return "inbox";
+      if (id === "sent") return "send";
       if (id === "archive") return "archive";
       if (id === "trash") return "delete";
       if (id === "spam") return "report";

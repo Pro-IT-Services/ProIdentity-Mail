@@ -517,6 +517,10 @@ func (s *fakeStore) SendMessage(ctx context.Context, message OutboundMessage) er
 	return nil
 }
 
+func (s *fakeStore) SaveSentMessage(ctx context.Context, message OutboundMessage) error {
+	return nil
+}
+
 func (s *fakeStore) ReportMessage(ctx context.Context, email, id, verdict string) error {
 	s.reportedEmail = email
 	s.reportedID = id

@@ -464,7 +464,14 @@ func (s CompositeStore) GetMessage(ctx context.Context, email, id string) (Messa
 }
 
 func (s CompositeStore) SendMessage(ctx context.Context, message OutboundMessage) error {
-	return s.Sender.Send(ctx, message)
+	if err := s.Sender.Send(ctx, message); err != nil {
+		return err
+	}
+	return s.Mailbox.SaveSentMessage(ctx, message)
+}
+
+func (s CompositeStore) SaveSentMessage(ctx context.Context, message OutboundMessage) error {
+	return s.Mailbox.SaveSentMessage(ctx, message)
 }
 
 func (s CompositeStore) ReportMessage(ctx context.Context, email, id, verdict string) error {

@@ -116,6 +116,34 @@ func TestMaildirStoreReportsUnreadCounts(t *testing.T) {
 	}
 }
 
+func TestMaildirStoreIncludesSentFolderAndSavesSentMessages(t *testing.T) {
+	root := t.TempDir()
+	store := MaildirStore{Root: root}
+	message := OutboundMessage{
+		From:    "marko@example.com",
+		To:      []string{"ada@example.net"},
+		Subject: "Sent copy",
+		Body:    "hello",
+	}
+	if err := store.SaveSentMessage(context.Background(), message); err != nil {
+		t.Fatalf("SaveSentMessage returned error: %v", err)
+	}
+	folders, err := store.ListFolders(context.Background(), "marko@example.com")
+	if err != nil {
+		t.Fatalf("ListFolders returned error: %v", err)
+	}
+	if folders[1].ID != "sent" || folders[1].Name != "Sent" || folders[1].Total != 1 || folders[1].Unread != 0 {
+		t.Fatalf("sent folder = %+v, want sent total 1 unread 0", folders[1])
+	}
+	messages, err := store.ListMessages(context.Background(), "marko@example.com", "sent", 10)
+	if err != nil {
+		t.Fatalf("ListMessages sent returned error: %v", err)
+	}
+	if len(messages) != 1 || messages[0].Subject != "Sent copy" || messages[0].Unread {
+		t.Fatalf("sent messages = %+v, want one read sent copy", messages)
+	}
+}
+
 func TestMaildirStoreRejectsUnsafeMessageID(t *testing.T) {
 	store := MaildirStore{Root: t.TempDir()}
 	if _, err := store.GetMessage(context.Background(), "marko@example.com", "../secret"); err == nil {

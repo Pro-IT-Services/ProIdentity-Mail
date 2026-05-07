@@ -106,8 +106,10 @@ func folderMailboxes(folder string) []string {
 		return []string{filepath.Join(".Trash", "new"), filepath.Join(".Trash", "cur")}
 	case "archive":
 		return []string{filepath.Join(".Archive", "new"), filepath.Join(".Archive", "cur")}
+	case "sent":
+		return []string{filepath.Join(".Sent", "new"), filepath.Join(".Sent", "cur")}
 	case "all":
-		return []string{"new", "cur", filepath.Join(".Spam", "new"), filepath.Join(".Spam", "cur"), filepath.Join(".Trash", "new"), filepath.Join(".Trash", "cur"), filepath.Join(".Archive", "new"), filepath.Join(".Archive", "cur")}
+		return []string{"new", "cur", filepath.Join(".Sent", "new"), filepath.Join(".Sent", "cur"), filepath.Join(".Spam", "new"), filepath.Join(".Spam", "cur"), filepath.Join(".Trash", "new"), filepath.Join(".Trash", "cur"), filepath.Join(".Archive", "new"), filepath.Join(".Archive", "cur")}
 	default:
 		if mailbox, err := customMailboxName(folder); err == nil && mailbox != "" {
 			return []string{filepath.Join(mailbox, "new"), filepath.Join(mailbox, "cur")}
@@ -126,6 +128,7 @@ func (s MaildirStore) ListFolders(ctx context.Context, email string) ([]MailFold
 	}
 	folders := []MailFolder{
 		{ID: "inbox", Name: "Inbox", System: true},
+		{ID: "sent", Name: "Sent", System: true},
 		{ID: "archive", Name: "Archive", System: true},
 		{ID: "spam", Name: "Spam", System: true},
 		{ID: "trash", Name: "Trash", System: true},
@@ -156,8 +159,8 @@ func (s MaildirStore) ListFolders(ctx context.Context, email string) ([]MailFold
 		}
 		folders = append(folders, MailFolder{ID: id, Name: id, System: false, Total: total, Unread: unread})
 	}
-	sort.SliceStable(folders[4:], func(i, j int) bool {
-		return strings.ToLower(folders[4+i].Name) < strings.ToLower(folders[4+j].Name)
+	sort.SliceStable(folders[5:], func(i, j int) bool {
+		return strings.ToLower(folders[5+i].Name) < strings.ToLower(folders[5+j].Name)
 	})
 	return folders, nil
 }
@@ -260,6 +263,24 @@ func (s MaildirStore) MoveMessage(ctx context.Context, email, id, folder string)
 	return os.Rename(source, filepath.Join(destinationDir, filepath.Base(source)))
 }
 
+func (s MaildirStore) SaveSentMessage(ctx context.Context, message OutboundMessage) error {
+	root, err := s.maildirRoot(message.From)
+	if err != nil {
+		return err
+	}
+	destinationDir := filepath.Join(root, ".Sent", "cur")
+	if err := os.MkdirAll(destinationDir, 0750); err != nil {
+		return err
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	name := fmt.Sprintf("%d.%d.webmail.S", time.Now().UnixNano(), os.Getpid())
+	return os.WriteFile(filepath.Join(destinationDir, name), buildRFC822(message), 0640)
+}
+
 func (s MaildirStore) MessagePath(ctx context.Context, email, id string) (string, error) {
 	root, err := s.maildirRoot(email)
 	if err != nil {
@@ -280,7 +301,7 @@ func (s MaildirStore) messagePath(ctx context.Context, root, id string) (string,
 	if strings.Contains(id, "/") || strings.Contains(id, `\`) || strings.Contains(id, "..") || id == "" {
 		return "", errors.New("invalid message id")
 	}
-	mailboxes := []string{"new", "cur", ".Spam/new", ".Spam/cur", ".Trash/new", ".Trash/cur", ".Archive/new", ".Archive/cur"}
+	mailboxes := []string{"new", "cur", ".Sent/new", ".Sent/cur", ".Spam/new", ".Spam/cur", ".Trash/new", ".Trash/cur", ".Archive/new", ".Archive/cur"}
 	entries, _ := os.ReadDir(root)
 	for _, entry := range entries {
 		if entry.IsDir() && strings.HasPrefix(entry.Name(), ".") {
@@ -314,6 +335,8 @@ func destinationMailbox(folder string) (string, error) {
 		return ".Trash", nil
 	case "archive":
 		return ".Archive", nil
+	case "sent":
+		return ".Sent", nil
 	default:
 		return customMailboxName(folder)
 	}
@@ -352,6 +375,8 @@ func systemFolderID(name string) (string, bool) {
 		return "inbox", true
 	case "spam":
 		return "spam", true
+	case "sent":
+		return "sent", true
 	case "trash":
 		return "trash", true
 	case "archive":

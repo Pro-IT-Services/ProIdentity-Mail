@@ -20,6 +20,7 @@ type Store interface {
 	ListMessages(ctx context.Context, email, folder string, limit int) ([]MessageSummary, error)
 	GetMessage(ctx context.Context, email, id string) (MessageDetail, error)
 	SendMessage(ctx context.Context, message OutboundMessage) error
+	SaveSentMessage(ctx context.Context, message OutboundMessage) error
 	ReportMessage(ctx context.Context, email, id, verdict string) error
 	MoveMessage(ctx context.Context, email, id, folder string) error
 	ListFolders(ctx context.Context, email string) ([]MailFolder, error)
