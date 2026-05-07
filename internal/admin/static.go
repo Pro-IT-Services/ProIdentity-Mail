@@ -674,7 +674,7 @@ const adminIndexHTML = `<!doctype html>
       const selectDomain = event.target.closest("[data-select-domain]")?.dataset.selectDomain;
       if (selectDomain) { state.selectedDomainId = String(selectDomain); loadDNS(selectDomain).catch(error => showStatus(error.message, true)); }
       const copy = event.target.closest("[data-copy]")?.dataset.copy;
-      if (copy) navigator.clipboard.writeText(copy).then(() => showStatus("Copied"));
+      if (copy) navigator.clipboard.writeText(copy).then(() => showStatus("Copied")).catch(error => showStatus("Copy failed: " + error.message, true));
     });
     document.addEventListener("submit", event => {
       const form = event.target.closest("[data-form]");
@@ -699,7 +699,7 @@ const adminIndexHTML = `<!doctype html>
     $("#reload-top").addEventListener("click", () => refresh().then(() => showStatus("Data refreshed")).catch(error => showStatus(error.message, true)));
     $("#logout-nav").addEventListener("click", () => logout().catch(error => showStatus(error.message, true)));
     $("#start-onboarding").addEventListener("click", () => setView("onboarding"));
-    $("#copy-discovery").addEventListener("click", () => navigator.clipboard.writeText(location.origin + "/.well-known/proidentity-mail/config.json?emailaddress=user@example.com").then(() => showStatus("Discovery URL copied")));
+    $("#copy-discovery").addEventListener("click", () => navigator.clipboard.writeText(location.origin + "/.well-known/proidentity-mail/config.json?emailaddress=user@example.com").then(() => showStatus("Discovery URL copied")).catch(error => showStatus("Copy failed: " + error.message, true)));
     $("#login-form").addEventListener("submit", async event => {
       event.preventDefault();
       const form = event.currentTarget;

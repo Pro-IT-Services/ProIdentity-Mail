@@ -628,6 +628,25 @@ const webmailIndexHTML = `<!doctype html>
     .primary-button:disabled { opacity: .65; cursor: wait; }
     .error { color: var(--danger); min-height: 20px; }
     .error.info { color: var(--muted); }
+    .toast {
+      position: fixed;
+      right: 22px;
+      bottom: 22px;
+      z-index: 80;
+      max-width: min(360px, calc(100vw - 44px));
+      border: 1px solid rgba(70,72,212,.24);
+      border-radius: 8px;
+      background: #ffffff;
+      color: var(--ink);
+      box-shadow: 0 18px 38px rgba(15,23,42,.18);
+      padding: 12px 14px;
+      font-weight: 700;
+    }
+    .toast.error-toast {
+      border-color: rgba(186,26,26,.32);
+      color: var(--danger);
+    }
+    .toast.hidden { display: none; }
     @media (max-width: 1100px) {
       body { overflow: auto; height: auto; }
       .app { height: auto; grid-template-columns: 1fr; }
@@ -648,7 +667,7 @@ const webmailIndexHTML = `<!doctype html>
     <div class="brand"><span class="material-symbols-outlined">shield</span><h1>ProIdentity Mail</h1></div>
     <div class="top-actions">
       <div class="search"><span class="material-symbols-outlined">search</span><input id="search" placeholder="Search emails..."></div>
-      <span class="material-symbols-outlined" id="refresh" title="Refresh">refresh</span>
+      <button class="tool-button" type="button" id="refresh" title="Refresh"><span class="material-symbols-outlined">refresh</span></button>
       <div class="avatar" id="avatar">--</div>
     </div>
   </header>
@@ -771,7 +790,6 @@ const webmailIndexHTML = `<!doctype html>
           <button class="tool-button" type="button" data-editor-clear title="Clear formatting"><span class="material-symbols-outlined">format_clear</span></button>
         </div>
         <div style="flex:1"></div>
-        <button class="tool-button" type="button" title="More options"><span class="material-symbols-outlined">more_vert</span></button>
       </div>
       <div class="compose-editor-shell">
         <div class="editor" id="compose-editor" contenteditable="true" spellcheck="true" data-placeholder="Write your message..."></div>
@@ -793,6 +811,7 @@ const webmailIndexHTML = `<!doctype html>
     </div>
   </form>
   <div class="security-compose-badge hidden" id="compose-security-badge"><span class="status-dot"></span><span>Encrypted Session</span><span class="material-symbols-outlined">verified_user</span></div>
+  <div class="toast hidden" id="toast"></div>
 
   <form class="modal hidden" id="folder-modal">
     <div class="modal-head"><h2>New folder</h2><button class="tool-button" type="button" id="close-folder" title="Close"><span class="material-symbols-outlined">close</span></button></div>
@@ -848,6 +867,7 @@ const webmailIndexHTML = `<!doctype html>
 
   <script>
     const state = { csrf: "", email: "", messages: [], selected: null, folder: "inbox", folders: [], filters: [], contacts: [], events: [], view: "mail" };
+    let toastTimer = null;
     const esc = value => String(value ?? "").replace(/[&<>"']/g, char => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[char]));
     const initials = email => String(email || "--").split("@")[0].split(/[._-]+/).filter(Boolean).slice(0, 2).map(part => part[0]).join("").toUpperCase() || "--";
     const messageTime = item => item.date ? new Date(item.date).toLocaleString([], {month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"}) : "";
@@ -876,6 +896,13 @@ const webmailIndexHTML = `<!doctype html>
       if (response.status === 204) return null;
       return response.json();
     };
+    function showToast(message, isError = false) {
+      const box = document.querySelector("#toast");
+      clearTimeout(toastTimer);
+      box.textContent = message;
+      box.className = "toast" + (isError ? " error-toast" : "");
+      toastTimer = setTimeout(() => box.classList.add("hidden"), 3600);
+    }
     async function loadMessages() {
       state.view = "mail";
       await loadFolders();
@@ -914,10 +941,14 @@ const webmailIndexHTML = `<!doctype html>
       await loadMessages();
     }
     async function moveSelected(folder) {
-      if (!state.selected) return;
+      if (!state.selected) {
+        showToast("Select a message first", true);
+        return;
+      }
       const response = await fetch("/api/v1/messages/" + encodeURIComponent(state.selected.id) + "/move", {method: "POST", credentials: "same-origin", cache: "no-store", headers: {"Content-Type": "application/json", "X-CSRF-Token": state.csrf}, body: JSON.stringify({folder})});
       if (!response.ok) throw new Error("Move failed");
       await loadMessages();
+      showToast(folder === "trash" ? "Message moved to trash" : "Message moved to " + folder);
     }
     function folderIcon(folder) {
       const id = String(folder.id || "").toLowerCase();
@@ -1025,7 +1056,7 @@ const webmailIndexHTML = `<!doctype html>
       document.querySelector("#reader").innerHTML =
         "<div class=\"workspace-head\"><div><h2>Contacts</h2><div class=\"muted\">People available to webmail and CardDAV clients.</div></div><button class=\"primary-button\" id=\"add-contact\" type=\"button\">Add Contact</button></div>" +
         "<div class=\"connect-box\"><strong>Phone contact source</strong><div class=\"connect-row\"><span class=\"muted\">Server</span><code>" + esc(carddav) + "</code></div><div class=\"connect-row\"><span class=\"muted\">Username</span><code>" + esc(state.email) + "</code></div></div>" +
-        "<div class=\"mini-grid\">" + state.contacts.map(item => "<div class=\"mini-row\"><div><strong>" + esc(item.name) + "</strong><div class=\"muted\">" + esc(item.email) + "</div></div><div class=\"compact-actions\"><button class=\"secondary-button\" data-edit-contact=\"" + esc(item.id) + "\"><span class=\"material-symbols-outlined\">edit</span>Edit</button><button class=\"danger-button\" data-delete-contact=\"" + esc(item.id) + "\"><span class=\"material-symbols-outlined\">delete</span>Delete</button></div></div>").join("") + "</div>";
+        "<div class=\"mini-grid\">" + (state.contacts.length ? state.contacts.map(item => "<div class=\"mini-row\"><div><strong>" + esc(item.name) + "</strong><div class=\"muted\">" + esc(item.email) + "</div></div><div class=\"compact-actions\"><button class=\"secondary-button\" data-edit-contact=\"" + esc(item.id) + "\"><span class=\"material-symbols-outlined\">edit</span>Edit</button><button class=\"danger-button\" data-delete-contact=\"" + esc(item.id) + "\"><span class=\"material-symbols-outlined\">delete</span>Delete</button></div></div>").join("") : "<div class=\"mini-row\"><div><strong>No contacts yet</strong><div class=\"muted\">Add contacts here or sync them from a CardDAV client.</div></div></div>") + "</div>";
       document.querySelector("#add-contact").addEventListener("click", () => openContactModal());
     }
     function openContactModal(contact = {}) {
@@ -1066,7 +1097,7 @@ const webmailIndexHTML = `<!doctype html>
       document.querySelector("#reader").innerHTML =
         "<div class=\"workspace-head\"><div><h2>Calendar</h2><div class=\"muted\">Events shared with CalDAV clients.</div></div><button class=\"primary-button\" id=\"add-event\" type=\"button\">Add Event</button></div>" +
         "<div class=\"connect-box\"><strong>Phone calendar source</strong><div class=\"connect-row\"><span class=\"muted\">Server</span><code>" + esc(caldav) + "</code></div><div class=\"connect-row\"><span class=\"muted\">Username</span><code>" + esc(state.email) + "</code></div></div>" +
-        "<div class=\"mini-grid\">" + state.events.map(item => "<div class=\"mini-row\"><div><strong>" + esc(item.title) + "</strong><div class=\"muted\">" + esc(new Date(item.starts_at).toLocaleString()) + " - " + esc(new Date(item.ends_at).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})) + "</div></div><div class=\"compact-actions\"><button class=\"secondary-button\" data-edit-event=\"" + esc(item.id) + "\"><span class=\"material-symbols-outlined\">edit</span>Edit</button><button class=\"danger-button\" data-delete-event=\"" + esc(item.id) + "\"><span class=\"material-symbols-outlined\">delete</span>Delete</button></div></div>").join("") + "</div>";
+        "<div class=\"mini-grid\">" + (state.events.length ? state.events.map(item => "<div class=\"mini-row\"><div><strong>" + esc(item.title) + "</strong><div class=\"muted\">" + esc(new Date(item.starts_at).toLocaleString()) + " - " + esc(new Date(item.ends_at).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})) + "</div></div><div class=\"compact-actions\"><button class=\"secondary-button\" data-edit-event=\"" + esc(item.id) + "\"><span class=\"material-symbols-outlined\">edit</span>Edit</button><button class=\"danger-button\" data-delete-event=\"" + esc(item.id) + "\"><span class=\"material-symbols-outlined\">delete</span>Delete</button></div></div>").join("") : "<div class=\"mini-row\"><div><strong>No events yet</strong><div class=\"muted\">Create a calendar item here or sync from a CalDAV client.</div></div></div>") + "</div>";
       document.querySelector("#add-event").addEventListener("click", () => openEventModal());
     }
     function openEventModal(item = {}) {
@@ -1099,10 +1130,14 @@ const webmailIndexHTML = `<!doctype html>
       await loadCalendarView();
     }
     async function reportSelected(verdict) {
-      if (!state.selected) return;
+      if (!state.selected) {
+        showToast("Select a message first", true);
+        return;
+      }
       const response = await fetch("/api/v1/messages/" + encodeURIComponent(state.selected.id) + "/report", {method: "POST", credentials: "same-origin", cache: "no-store", headers: {"Content-Type": "application/json", "X-CSRF-Token": state.csrf}, body: JSON.stringify({verdict})});
       if (!response.ok) throw new Error("Message report failed");
       await loadMessages();
+      showToast(verdict === "spam" ? "Marked as spam" : "Marked as not spam");
     }
     async function selectedDetail() {
       if (!state.selected) throw new Error("Select a message first");
@@ -1277,12 +1312,17 @@ const webmailIndexHTML = `<!doctype html>
     document.querySelector("#close-folder").addEventListener("click", () => document.querySelector("#folder-modal").classList.add("hidden"));
     document.querySelector("#cancel-folder").addEventListener("click", () => document.querySelector("#folder-modal").classList.add("hidden"));
     document.querySelector("#folder-modal").addEventListener("submit", saveFolder);
-    document.querySelector("#open-filters").addEventListener("click", () => loadFiltersView().catch(error => alert(error.message)));
-    document.querySelector("#open-filters-rail").addEventListener("click", () => loadFiltersView().catch(error => alert(error.message)));
-    document.querySelector("#open-folders-rail").addEventListener("click", () => {
-      state.view = "folders";
-      document.querySelector("#reader").innerHTML = "<div class=\"workspace-head\"><div><h2>Folders</h2><div class=\"muted\">Create custom folders and open them from the left rail.</div></div><button class=\"primary-button\" id=\"add-folder-inline\" type=\"button\">New Folder</button></div><div class=\"mini-grid\">" + state.folders.map(folder => "<div class=\"mini-row\"><div><strong>" + esc(folder.name) + "</strong><div class=\"muted\">" + esc(folder.total || 0) + " messages</div></div><div class=\"compact-actions\"><button class=\"secondary-button\" data-open-folder=\"" + esc(folder.id) + "\"><span class=\"material-symbols-outlined\">folder_open</span>Open</button>" + (folder.system ? "" : "<button class=\"danger-button\" data-delete-folder=\"" + esc(folder.id) + "\"><span class=\"material-symbols-outlined\">delete</span>Delete</button>") + "</div></div>").join("") + "</div>";
-      document.querySelector("#add-folder-inline").addEventListener("click", () => document.querySelector("#folder-modal").classList.remove("hidden"));
+    document.querySelector("#open-filters").addEventListener("click", () => loadFiltersView().catch(error => showToast(error.message, true)));
+    document.querySelector("#open-filters-rail").addEventListener("click", () => loadFiltersView().catch(error => showToast(error.message, true)));
+    document.querySelector("#open-folders-rail").addEventListener("click", async () => {
+      try {
+        state.view = "folders";
+        await loadFolders();
+        document.querySelector("#reader").innerHTML = "<div class=\"workspace-head\"><div><h2>Folders</h2><div class=\"muted\">Create custom folders and open them from the left rail.</div></div><button class=\"primary-button\" id=\"add-folder-inline\" type=\"button\">New Folder</button></div><div class=\"mini-grid\">" + state.folders.map(folder => "<div class=\"mini-row\"><div><strong>" + esc(folder.name) + "</strong><div class=\"muted\">" + esc(folder.total || 0) + " messages</div></div><div class=\"compact-actions\"><button class=\"secondary-button\" data-open-folder=\"" + esc(folder.id) + "\"><span class=\"material-symbols-outlined\">folder_open</span>Open</button>" + (folder.system ? "" : "<button class=\"danger-button\" data-delete-folder=\"" + esc(folder.id) + "\"><span class=\"material-symbols-outlined\">delete</span>Delete</button>") + "</div></div>").join("") + "</div>";
+        document.querySelector("#add-folder-inline").addEventListener("click", () => document.querySelector("#folder-modal").classList.remove("hidden"));
+      } catch (error) {
+        showToast(error.message, true);
+      }
     });
     document.querySelector("#close-filter").addEventListener("click", () => document.querySelector("#filter-modal").classList.add("hidden"));
     document.querySelector("#cancel-filter").addEventListener("click", () => document.querySelector("#filter-modal").classList.add("hidden"));
@@ -1315,16 +1355,16 @@ const webmailIndexHTML = `<!doctype html>
       closeCompose();
       await loadMessages();
     });
-    document.querySelector("#refresh").addEventListener("click", () => loadMessages().catch(error => document.querySelector("#error").textContent = error.message));
-    document.querySelector("#mark-spam").addEventListener("click", () => reportSelected("spam").catch(error => alert(error.message)));
-    document.querySelector("#mark-ham").addEventListener("click", () => reportSelected("ham").catch(error => alert(error.message)));
-    document.querySelector("#archive-message").addEventListener("click", () => moveSelected("archive").catch(error => alert(error.message)));
-    document.querySelector("#trash-message").addEventListener("click", () => moveSelected("trash").catch(error => alert(error.message)));
-    document.querySelector("#reply-message").addEventListener("click", () => openResponse("reply").catch(error => alert(error.message)));
-    document.querySelector("#reply-all-message").addEventListener("click", () => openResponse("reply").catch(error => alert(error.message)));
-    document.querySelector("#forward-message").addEventListener("click", () => openResponse("forward").catch(error => alert(error.message)));
-    document.querySelector("#open-contacts").addEventListener("click", () => loadContactsView().catch(error => alert(error.message)));
-    document.querySelector("#open-calendar").addEventListener("click", () => loadCalendarView().catch(error => alert(error.message)));
+    document.querySelector("#refresh").addEventListener("click", () => loadMessages().then(() => showToast("Mailbox refreshed")).catch(error => showToast(error.message, true)));
+    document.querySelector("#mark-spam").addEventListener("click", () => reportSelected("spam").catch(error => showToast(error.message, true)));
+    document.querySelector("#mark-ham").addEventListener("click", () => reportSelected("ham").catch(error => showToast(error.message, true)));
+    document.querySelector("#archive-message").addEventListener("click", () => moveSelected("archive").catch(error => showToast(error.message, true)));
+    document.querySelector("#trash-message").addEventListener("click", () => moveSelected("trash").catch(error => showToast(error.message, true)));
+    document.querySelector("#reply-message").addEventListener("click", () => openResponse("reply").catch(error => showToast(error.message, true)));
+    document.querySelector("#reply-all-message").addEventListener("click", () => openResponse("reply").catch(error => showToast(error.message, true)));
+    document.querySelector("#forward-message").addEventListener("click", () => openResponse("forward").catch(error => showToast(error.message, true)));
+    document.querySelector("#open-contacts").addEventListener("click", () => loadContactsView().catch(error => showToast(error.message, true)));
+    document.querySelector("#open-calendar").addEventListener("click", () => loadCalendarView().catch(error => showToast(error.message, true)));
     document.querySelector("#logout").addEventListener("click", async () => {
       await api("/api/v1/session", {method: "DELETE"});
       state.csrf = "";
@@ -1359,7 +1399,7 @@ const webmailIndexHTML = `<!doctype html>
       }
       const deleteContactButton = event.target.closest("[data-delete-contact]");
       if (deleteContactButton) {
-        deleteContact(deleteContactButton.dataset.deleteContact).catch(error => alert(error.message));
+        deleteContact(deleteContactButton.dataset.deleteContact).catch(error => showToast(error.message, true));
         return;
       }
       const editEvent = event.target.closest("[data-edit-event]");
@@ -1369,7 +1409,7 @@ const webmailIndexHTML = `<!doctype html>
       }
       const deleteEventButton = event.target.closest("[data-delete-event]");
       if (deleteEventButton) {
-        deleteEvent(deleteEventButton.dataset.deleteEvent).catch(error => alert(error.message));
+        deleteEvent(deleteEventButton.dataset.deleteEvent).catch(error => showToast(error.message, true));
         return;
       }
       const editFilter = event.target.closest("[data-edit-filter]");
@@ -1379,18 +1419,18 @@ const webmailIndexHTML = `<!doctype html>
       }
       const deleteFilterButton = event.target.closest("[data-delete-filter]");
       if (deleteFilterButton) {
-        deleteFilter(deleteFilterButton.dataset.deleteFilter).catch(error => alert(error.message));
+        deleteFilter(deleteFilterButton.dataset.deleteFilter).catch(error => showToast(error.message, true));
         return;
       }
       const openFolder = event.target.closest("[data-open-folder]");
       if (openFolder) {
         state.folder = openFolder.dataset.openFolder;
-        loadMessages().catch(error => alert(error.message));
+        loadMessages().catch(error => showToast(error.message, true));
         return;
       }
       const deleteFolderButton = event.target.closest("[data-delete-folder]");
       if (deleteFolderButton) {
-        deleteFolder(deleteFolderButton.dataset.deleteFolder).catch(error => alert(error.message));
+        deleteFolder(deleteFolderButton.dataset.deleteFolder).catch(error => showToast(error.message, true));
         return;
       }
       const button = event.target.closest("[data-id]");
