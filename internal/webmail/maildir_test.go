@@ -68,6 +68,54 @@ func TestMaildirStoreGetsMessageBodyByID(t *testing.T) {
 	}
 }
 
+func TestMaildirStoreReportsUnreadCounts(t *testing.T) {
+	root := t.TempDir()
+	newDir := filepath.Join(root, "example.com", "marko", "Maildir", "new")
+	curDir := filepath.Join(root, "example.com", "marko", "Maildir", "cur")
+	if err := os.MkdirAll(newDir, 0750); err != nil {
+		t.Fatalf("mkdir new: %v", err)
+	}
+	if err := os.MkdirAll(curDir, 0750); err != nil {
+		t.Fatalf("mkdir cur: %v", err)
+	}
+	raw := []byte("From: sender@example.net\r\nTo: marko@example.com\r\nSubject: Count\r\n\r\nbody")
+	if err := os.WriteFile(filepath.Join(newDir, "unread"), raw, 0640); err != nil {
+		t.Fatalf("write unread: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(curDir, "read-seen"), raw, 0640); err != nil {
+		t.Fatalf("write read: %v", err)
+	}
+
+	store := MaildirStore{Root: root}
+	folders, err := store.ListFolders(context.Background(), "marko@example.com")
+	if err != nil {
+		t.Fatalf("ListFolders returned error: %v", err)
+	}
+	if folders[0].ID != "inbox" || folders[0].Total != 2 || folders[0].Unread != 1 {
+		t.Fatalf("inbox counts = %+v, want total 2 unread 1", folders[0])
+	}
+	messages, err := store.ListMessages(context.Background(), "marko@example.com", "inbox", 10)
+	if err != nil {
+		t.Fatalf("ListMessages returned error: %v", err)
+	}
+	if len(messages) != 2 {
+		t.Fatalf("len(messages) = %d, want 2", len(messages))
+	}
+	foundUnread := false
+	foundRead := false
+	for _, message := range messages {
+		if message.ID == "unread" && message.Unread {
+			foundUnread = true
+		}
+		if message.ID == "read-seen" && !message.Unread {
+			foundRead = true
+		}
+	}
+	if !foundUnread || !foundRead {
+		t.Fatalf("unexpected unread flags: %+v", messages)
+	}
+}
+
 func TestMaildirStoreRejectsUnsafeMessageID(t *testing.T) {
 	store := MaildirStore{Root: t.TempDir()}
 	if _, err := store.GetMessage(context.Background(), "marko@example.com", "../secret"); err == nil {

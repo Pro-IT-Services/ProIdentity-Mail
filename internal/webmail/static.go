@@ -36,6 +36,11 @@ const webmailIndexHTML = `<!doctype html>
       font: 13px/1.45 "Public Sans", system-ui, sans-serif;
       letter-spacing: 0;
     }
+    body.auth-locked header,
+    body.auth-locked .app {
+      visibility: hidden;
+      pointer-events: none;
+    }
     .material-symbols-outlined {
       font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 24;
       font-size: 24px;
@@ -70,12 +75,42 @@ const webmailIndexHTML = `<!doctype html>
     .avatar {
       width: 34px;
       height: 34px;
+      border: 0;
       border-radius: 50%;
       background: #5d60f0;
       color: white;
       display: grid;
       place-items: center;
       font-weight: 700;
+      cursor: pointer;
+    }
+    .account-menu {
+      position: fixed;
+      top: 48px;
+      right: 14px;
+      z-index: 70;
+      width: min(320px, calc(100vw - 28px));
+      border: 1px solid var(--outline);
+      border-radius: 8px;
+      background: white;
+      box-shadow: 0 18px 44px rgba(15,23,42,.2);
+      padding: 14px;
+      display: grid;
+      gap: 12px;
+    }
+    .account-menu.hidden { display: none; }
+    .account-menu strong { overflow-wrap: anywhere; }
+    .account-actions { display: flex; gap: 8px; justify-content: flex-end; }
+    .security-note {
+      border: 1px solid var(--outline);
+      border-radius: 8px;
+      background: #f8f8fc;
+      color: var(--muted);
+      padding: 12px;
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      font-size: 12px;
     }
     .app {
       height: calc(100vh - 54px);
@@ -83,6 +118,8 @@ const webmailIndexHTML = `<!doctype html>
       grid-template-columns: 240px 340px minmax(400px, 1fr) 54px;
       overflow: hidden;
     }
+    body.workspace-wide .app { grid-template-columns: 240px minmax(0, 1fr) 54px; }
+    body.workspace-wide .list-pane { display: none; }
     aside {
       background: var(--surface-soft);
       border-right: 1px solid var(--outline);
@@ -129,12 +166,13 @@ const webmailIndexHTML = `<!doctype html>
     .count {
       min-width: 32px;
       border-radius: 999px;
-      background: var(--primary);
-      color: white;
       padding: 2px 10px;
       font-size: 12px;
       font-weight: 700;
     }
+    .count.unread { background: var(--primary); color: white; }
+    .count.total { background: transparent; color: var(--muted); padding-right: 0; }
+    .count.hidden { display: none; }
     .labels {
       margin-top: auto;
       border-top: 1px solid var(--outline);
@@ -181,6 +219,17 @@ const webmailIndexHTML = `<!doctype html>
     }
     .message:hover { background: #fafaff; }
     .message.active { background: rgba(218,226,253,.35); border-left-color: var(--primary); }
+    .message.unread .from, .message.unread .subject { font-weight: 800; }
+    .message.unread .subject:before {
+      content: "";
+      display: inline-block;
+      width: 7px;
+      height: 7px;
+      border-radius: 999px;
+      background: var(--primary);
+      margin-right: 7px;
+      vertical-align: 1px;
+    }
     .message-top { display: flex; justify-content: space-between; gap: 12px; }
     .from { font-weight: 700; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .time { color: #6b6880; font-size: 12px; font-weight: 700; letter-spacing: .04em; white-space: nowrap; }
@@ -214,6 +263,7 @@ const webmailIndexHTML = `<!doctype html>
       color: #292b3c;
       background: var(--surface);
     }
+    .toolbar.hidden { display: none; }
     .tool-button {
       width: 34px;
       height: 34px;
@@ -226,25 +276,7 @@ const webmailIndexHTML = `<!doctype html>
       cursor: pointer;
     }
     .tool-button:hover { background: var(--surface-soft); }
-    .security-strip {
-      margin: 24px 28px 18px;
-      border: 1px solid var(--outline);
-      border-radius: 12px;
-      background: #f8f9ff;
-      min-height: 72px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 18px;
-      padding: 18px;
-      color: #4b536b;
-      font-weight: 700;
-      letter-spacing: .04em;
-      overflow: hidden;
-    }
-    .security-items { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
-    .security-items span { display: inline-flex; align-items: center; gap: 8px; }
-    .security-items .material-symbols-outlined { color: var(--primary); }
+    .message-meta { margin-top: 18px; display: grid; gap: 10px; }
     .reader-content { padding: 6px 28px 36px; max-width: 760px; }
     .reader h2 { margin: 0 0 20px; font-size: 28px; line-height: 1.15; }
     .sender-row { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 26px; }
@@ -345,6 +377,68 @@ const webmailIndexHTML = `<!doctype html>
     }
     .connect-row { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 10px; align-items: center; }
     .connect-row code { overflow-wrap: anywhere; font-size: 12px; }
+    .connect-box.hidden { display: none; }
+    .workspace-tools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .contact-list, .agenda-list { display: grid; gap: 10px; }
+    .contact-card, .event-card {
+      border: 1px solid var(--outline);
+      border-radius: 8px;
+      background: white;
+      min-height: 64px;
+      padding: 12px 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .contact-main { display: flex; align-items: center; gap: 12px; min-width: 0; }
+    .contact-initials {
+      width: 38px;
+      height: 38px;
+      border-radius: 50%;
+      background: var(--secondary-soft);
+      color: #30384d;
+      display: grid;
+      place-items: center;
+      font-weight: 800;
+      flex: none;
+    }
+    .calendar-layout {
+      display: grid;
+      grid-template-columns: minmax(280px, 420px) minmax(320px, 1fr);
+      gap: 18px;
+      align-items: start;
+    }
+    .month-card {
+      border: 1px solid var(--outline);
+      border-radius: 8px;
+      background: white;
+      padding: 14px;
+    }
+    .month-grid {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(0, 1fr));
+      gap: 6px;
+      margin-top: 12px;
+    }
+    .month-cell {
+      min-height: 42px;
+      border: 1px solid var(--outline);
+      border-radius: 6px;
+      padding: 6px;
+      color: var(--muted);
+      background: #fbfbff;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .month-cell.has-event { border-color: var(--primary); color: var(--primary); background: var(--primary-soft); }
+    .day-name {
+      color: var(--outline-strong);
+      font-size: 11px;
+      font-weight: 800;
+      text-align: center;
+      text-transform: uppercase;
+    }
     .rail {
       border-left: 1px solid var(--outline);
       display: flex;
@@ -653,6 +747,7 @@ const webmailIndexHTML = `<!doctype html>
       aside, .list-pane, .reader, .rail { min-height: auto; }
       .rail { display: none; }
       .search { width: 44vw; }
+      .calendar-layout { grid-template-columns: 1fr; }
       #compose-modal { inset: 12px; min-width: 0; }
       .compose-head, .compose-fields, .compose-toolbar, .compose-editor-shell, .compose-attachments, .compose-footer { padding-left: 16px; padding-right: 16px; }
       .compose-footer { align-items: stretch; flex-direction: column; }
@@ -662,15 +757,26 @@ const webmailIndexHTML = `<!doctype html>
     }
   </style>
 </head>
-<body>
+<body class="auth-locked">
   <header>
     <div class="brand"><span class="material-symbols-outlined">shield</span><h1>ProIdentity Mail</h1></div>
     <div class="top-actions">
       <div class="search"><span class="material-symbols-outlined">search</span><input id="search" placeholder="Search emails..."></div>
       <button class="tool-button" type="button" id="refresh" title="Refresh"><span class="material-symbols-outlined">refresh</span></button>
-      <div class="avatar" id="avatar">--</div>
+      <button class="avatar" type="button" id="avatar" title="Account">--</button>
     </div>
   </header>
+  <div class="account-menu hidden" id="account-menu">
+    <div>
+      <div class="muted">Signed in as</div>
+      <strong id="account-email">--</strong>
+    </div>
+    <div class="security-note"><span class="material-symbols-outlined">info</span><span>Mailbox security badges are shown only when message authentication data exists for the selected message.</span></div>
+    <div class="account-actions">
+      <button class="secondary-button" type="button" id="account-close">Close</button>
+      <button class="danger-button" type="button" id="account-logout"><span class="material-symbols-outlined">logout</span>Logout</button>
+    </div>
+  </div>
 
   <div class="app">
     <aside>
@@ -703,14 +809,6 @@ const webmailIndexHTML = `<!doctype html>
         <button class="tool-button" type="button" id="reply-message" title="Reply"><span class="material-symbols-outlined">reply</span></button>
         <button class="tool-button" type="button" id="reply-all-message" title="Reply all"><span class="material-symbols-outlined">reply_all</span></button>
         <button class="tool-button" type="button" id="forward-message" title="Forward"><span class="material-symbols-outlined">forward</span></button>
-      </div>
-      <div class="security-strip">
-        <div class="security-items">
-          <span><span class="material-symbols-outlined">verified_user</span>SPF: CHECK</span>
-          <span><span class="material-symbols-outlined">verified_user</span>DKIM: CHECK</span>
-          <span><span class="material-symbols-outlined">lock</span>TLS: ENCRYPTED</span>
-        </div>
-        <div>TRUSTED SENDER IDENTITY VERIFIED</div>
       </div>
       <article class="reader-content" id="reader">
         <h2>Select a message</h2>
@@ -871,6 +969,13 @@ const webmailIndexHTML = `<!doctype html>
     const esc = value => String(value ?? "").replace(/[&<>"']/g, char => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[char]));
     const initials = email => String(email || "--").split("@")[0].split(/[._-]+/).filter(Boolean).slice(0, 2).map(part => part[0]).join("").toUpperCase() || "--";
     const messageTime = item => item.date ? new Date(item.date).toLocaleString([], {month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"}) : "";
+    const dateKey = value => {
+      const date = value ? new Date(value) : new Date();
+      if (Number.isNaN(date.getTime())) return "";
+      const month = String(date.getMonth() + 1).padStart(2, "0");
+      const day = String(date.getDate()).padStart(2, "0");
+      return date.getFullYear() + "-" + month + "-" + day;
+    };
     const dateTimeLocal = value => {
       const date = value ? new Date(value) : new Date(Date.now() + 3600000);
       const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
@@ -885,6 +990,28 @@ const webmailIndexHTML = `<!doctype html>
     const prefixedSubject = (prefix, subject) => {
       const text = String(subject || "");
       return text.toLowerCase().startsWith(prefix.toLowerCase()) ? text : prefix + text;
+    };
+    const setAuthenticated = value => {
+      document.body.classList.toggle("auth-locked", !value);
+      document.querySelector("#account-menu").classList.add("hidden");
+    };
+    const folderCountHTML = folder => {
+      const unread = Number(folder.unread || 0);
+      const total = Number(folder.total || 0);
+      if (unread > 0) return "<span class=\"count unread\">" + esc(unread) + "</span>";
+      if (total > 0) return "<span class=\"count total\">" + esc(total) + "</span>";
+      return "<span class=\"count hidden\"></span>";
+    };
+    const renderCurrentView = () => {
+      if (state.view === "mail") render();
+      else if (state.view === "contacts") renderContactsView();
+      else if (state.view === "calendar") renderCalendarView();
+      else if (state.view === "filters") renderFiltersView();
+    };
+    const updateViewChrome = (placeholder = "Search emails...") => {
+      document.querySelector(".toolbar").classList.toggle("hidden", state.view !== "mail");
+      document.body.classList.toggle("workspace-wide", state.view !== "mail");
+      document.querySelector("#search").placeholder = placeholder;
     };
     const api = async (path, options = {}) => {
       const response = await fetch(path, {credentials: "same-origin", cache: "no-store", ...options, headers: {"Content-Type": "application/json", ...(state.csrf ? {"X-CSRF-Token": state.csrf} : {}), ...(options.headers || {})}});
@@ -931,12 +1058,14 @@ const webmailIndexHTML = `<!doctype html>
     async function bootstrapSession() {
       const response = await fetch("/api/v1/session", {credentials: "same-origin", cache: "no-store"});
       if (!response.ok) {
+        setAuthenticated(false);
         document.querySelector("#login-panel").classList.remove("hidden");
         return;
       }
       const body = await response.json();
       state.csrf = body.csrf_token || "";
       state.email = body.email || "";
+      setAuthenticated(true);
       document.querySelector("#login-panel").classList.add("hidden");
       await loadMessages();
     }
@@ -961,7 +1090,7 @@ const webmailIndexHTML = `<!doctype html>
     function renderFolders() {
       const folders = state.folders.length ? state.folders : [{id: "inbox", name: "Inbox", system: true, total: state.messages.length}];
       document.querySelector("#folder-list").innerHTML = folders.map(folder =>
-        "<button class=\"folder " + (String(folder.id) === String(state.folder) ? "active" : "") + "\" data-folder=\"" + esc(folder.id) + "\"><span><span class=\"material-symbols-outlined\">" + folderIcon(folder) + "</span>" + esc(folder.name) + "</span><span class=\"count\">" + esc(folder.total || 0) + "</span></button>"
+        "<button class=\"folder " + (String(folder.id) === String(state.folder) ? "active" : "") + "\" data-folder=\"" + esc(folder.id) + "\"><span><span class=\"material-symbols-outlined\">" + folderIcon(folder) + "</span>" + esc(folder.name) + "</span>" + folderCountHTML(folder) + "</button>"
       ).join("");
       document.querySelectorAll("[data-folder]").forEach(item => item.addEventListener("click", async () => {
         state.folder = item.dataset.folder;
@@ -999,6 +1128,7 @@ const webmailIndexHTML = `<!doctype html>
       renderFiltersView();
     }
     function renderFiltersView() {
+      updateViewChrome("Search filters...");
       document.querySelector("#reader").innerHTML =
         "<div class=\"workspace-head\"><div><h2>Filters</h2><div class=\"muted\">Rules saved for this mailbox. Delivery-time execution is the next mail pipeline step.</div></div><button class=\"primary-button\" id=\"add-filter\" type=\"button\">Add Filter</button></div>" +
         "<div class=\"mini-grid\">" + (state.filters.length ? state.filters.map(item => "<div class=\"mini-row\"><div><strong>" + esc(item.name) + "</strong><div class=\"muted\">" + esc(item.field) + " " + esc(item.operator) + " \"" + esc(item.value) + "\" -> " + esc(item.action) + (item.folder ? " " + esc(item.folder) : "") + "</div></div><div class=\"compact-actions\">" + (item.enabled ? "<span class=\"tag\">ENABLED</span>" : "<span class=\"tag\">OFF</span>") + "<button class=\"secondary-button\" data-edit-filter=\"" + esc(item.id) + "\"><span class=\"material-symbols-outlined\">edit</span>Edit</button><button class=\"danger-button\" data-delete-filter=\"" + esc(item.id) + "\"><span class=\"material-symbols-outlined\">delete</span>Delete</button></div></div>").join("") : "<div class=\"mini-row\"><div><strong>No filters yet</strong><div class=\"muted\">Create rules for sender, recipient, subject, or body matching.</div></div></div>") + "</div>";
@@ -1051,13 +1181,21 @@ const webmailIndexHTML = `<!doctype html>
       state.contacts = await api("/api/v1/contacts");
       renderContactsView();
     }
+    function filteredContacts() {
+      const q = document.querySelector("#search").value.trim().toLowerCase();
+      if (!q) return state.contacts;
+      return state.contacts.filter(item => [item.name, item.email].some(value => String(value || "").toLowerCase().includes(q)));
+    }
     function renderContactsView() {
+      updateViewChrome("Search contacts...");
       const carddav = serviceBase() + "/dav/addressbooks/" + encodeURIComponent(state.email) + "/default/";
+      const rows = filteredContacts();
       document.querySelector("#reader").innerHTML =
-        "<div class=\"workspace-head\"><div><h2>Contacts</h2><div class=\"muted\">People available to webmail and CardDAV clients.</div></div><button class=\"primary-button\" id=\"add-contact\" type=\"button\">Add Contact</button></div>" +
-        "<div class=\"connect-box\"><strong>Phone contact source</strong><div class=\"connect-row\"><span class=\"muted\">Server</span><code>" + esc(carddav) + "</code></div><div class=\"connect-row\"><span class=\"muted\">Username</span><code>" + esc(state.email) + "</code></div></div>" +
-        "<div class=\"mini-grid\">" + (state.contacts.length ? state.contacts.map(item => "<div class=\"mini-row\"><div><strong>" + esc(item.name) + "</strong><div class=\"muted\">" + esc(item.email) + "</div></div><div class=\"compact-actions\"><button class=\"secondary-button\" data-edit-contact=\"" + esc(item.id) + "\"><span class=\"material-symbols-outlined\">edit</span>Edit</button><button class=\"danger-button\" data-delete-contact=\"" + esc(item.id) + "\"><span class=\"material-symbols-outlined\">delete</span>Delete</button></div></div>").join("") : "<div class=\"mini-row\"><div><strong>No contacts yet</strong><div class=\"muted\">Add contacts here or sync them from a CardDAV client.</div></div></div>") + "</div>";
+        "<div class=\"workspace-head\"><div><h2>Contacts</h2><div class=\"muted\">People available to webmail and CardDAV clients.</div></div><div class=\"workspace-tools\"><button class=\"secondary-button\" id=\"toggle-contact-sync\" type=\"button\"><span class=\"material-symbols-outlined\">settings_ethernet</span>Sync info</button><button class=\"primary-button\" id=\"add-contact\" type=\"button\">Add Contact</button></div></div>" +
+        "<div class=\"connect-box hidden\" id=\"contact-sync-info\"><strong>Phone contact source</strong><div class=\"connect-row\"><span class=\"muted\">Server</span><code>" + esc(carddav) + "</code></div><div class=\"connect-row\"><span class=\"muted\">Username</span><code>" + esc(state.email) + "</code></div></div>" +
+        "<div class=\"contact-list\">" + (rows.length ? rows.map(item => "<div class=\"contact-card\"><div class=\"contact-main\"><div class=\"contact-initials\">" + esc(initials(item.name || item.email)) + "</div><div><strong>" + esc(item.name) + "</strong><div class=\"muted\">" + esc(item.email) + "</div></div></div><div class=\"compact-actions\"><button class=\"secondary-button\" data-edit-contact=\"" + esc(item.id) + "\"><span class=\"material-symbols-outlined\">edit</span>Edit</button><button class=\"danger-button\" data-delete-contact=\"" + esc(item.id) + "\"><span class=\"material-symbols-outlined\">delete</span>Delete</button></div></div>").join("") : "<div class=\"mini-row\"><div><strong>No contacts found</strong><div class=\"muted\">Add a contact or adjust search.</div></div></div>") + "</div>";
       document.querySelector("#add-contact").addEventListener("click", () => openContactModal());
+      document.querySelector("#toggle-contact-sync").addEventListener("click", () => document.querySelector("#contact-sync-info").classList.toggle("hidden"));
     }
     function openContactModal(contact = {}) {
       const form = document.querySelector("#contact-modal");
@@ -1092,13 +1230,34 @@ const webmailIndexHTML = `<!doctype html>
       state.events = await api("/api/v1/calendar");
       renderCalendarView();
     }
+    function filteredEvents() {
+      const q = document.querySelector("#search").value.trim().toLowerCase();
+      if (!q) return state.events;
+      return state.events.filter(item => [item.title, item.starts_at, item.ends_at].some(value => String(value || "").toLowerCase().includes(q)));
+    }
+    function renderMonthGrid(events) {
+      const today = new Date();
+      const first = new Date(today.getFullYear(), today.getMonth(), 1);
+      const last = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+      const eventDays = new Set(events.map(item => dateKey(item.starts_at)));
+      const cells = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map(day => "<div class=\"day-name\">" + day + "</div>");
+      for (let i = 0; i < first.getDay(); i++) cells.push("<div></div>");
+      for (let day = 1; day <= last.getDate(); day++) {
+        const key = dateKey(new Date(today.getFullYear(), today.getMonth(), day));
+        cells.push("<div class=\"month-cell " + (eventDays.has(key) ? "has-event" : "") + "\">" + day + "</div>");
+      }
+      return "<div class=\"month-card\"><strong>" + esc(today.toLocaleString([], {month: "long", year: "numeric"})) + "</strong><div class=\"month-grid\">" + cells.join("") + "</div></div>";
+    }
     function renderCalendarView() {
+      updateViewChrome("Search calendar...");
       const caldav = serviceBase() + "/dav/calendars/" + encodeURIComponent(state.email) + "/default/";
+      const rows = filteredEvents().sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at));
       document.querySelector("#reader").innerHTML =
-        "<div class=\"workspace-head\"><div><h2>Calendar</h2><div class=\"muted\">Events shared with CalDAV clients.</div></div><button class=\"primary-button\" id=\"add-event\" type=\"button\">Add Event</button></div>" +
-        "<div class=\"connect-box\"><strong>Phone calendar source</strong><div class=\"connect-row\"><span class=\"muted\">Server</span><code>" + esc(caldav) + "</code></div><div class=\"connect-row\"><span class=\"muted\">Username</span><code>" + esc(state.email) + "</code></div></div>" +
-        "<div class=\"mini-grid\">" + (state.events.length ? state.events.map(item => "<div class=\"mini-row\"><div><strong>" + esc(item.title) + "</strong><div class=\"muted\">" + esc(new Date(item.starts_at).toLocaleString()) + " - " + esc(new Date(item.ends_at).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})) + "</div></div><div class=\"compact-actions\"><button class=\"secondary-button\" data-edit-event=\"" + esc(item.id) + "\"><span class=\"material-symbols-outlined\">edit</span>Edit</button><button class=\"danger-button\" data-delete-event=\"" + esc(item.id) + "\"><span class=\"material-symbols-outlined\">delete</span>Delete</button></div></div>").join("") : "<div class=\"mini-row\"><div><strong>No events yet</strong><div class=\"muted\">Create a calendar item here or sync from a CalDAV client.</div></div></div>") + "</div>";
+        "<div class=\"workspace-head\"><div><h2>Calendar</h2><div class=\"muted\">Month view and agenda for CalDAV events.</div></div><div class=\"workspace-tools\"><button class=\"secondary-button\" id=\"toggle-calendar-sync\" type=\"button\"><span class=\"material-symbols-outlined\">settings_ethernet</span>Sync info</button><button class=\"primary-button\" id=\"add-event\" type=\"button\">Add Event</button></div></div>" +
+        "<div class=\"connect-box hidden\" id=\"calendar-sync-info\"><strong>Phone calendar source</strong><div class=\"connect-row\"><span class=\"muted\">Server</span><code>" + esc(caldav) + "</code></div><div class=\"connect-row\"><span class=\"muted\">Username</span><code>" + esc(state.email) + "</code></div></div>" +
+        "<div class=\"calendar-layout\">" + renderMonthGrid(rows) + "<div class=\"agenda-list\">" + (rows.length ? rows.map(item => "<div class=\"event-card\"><div><strong>" + esc(item.title) + "</strong><div class=\"muted\">" + esc(new Date(item.starts_at).toLocaleString()) + " - " + esc(new Date(item.ends_at).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})) + "</div></div><div class=\"compact-actions\"><button class=\"secondary-button\" data-edit-event=\"" + esc(item.id) + "\"><span class=\"material-symbols-outlined\">edit</span>Edit</button><button class=\"danger-button\" data-delete-event=\"" + esc(item.id) + "\"><span class=\"material-symbols-outlined\">delete</span>Delete</button></div></div>").join("") : "<div class=\"mini-row\"><div><strong>No events found</strong><div class=\"muted\">Create an event or adjust search.</div></div></div>") + "</div></div>";
       document.querySelector("#add-event").addEventListener("click", () => openEventModal());
+      document.querySelector("#toggle-calendar-sync").addEventListener("click", () => document.querySelector("#calendar-sync-info").classList.toggle("hidden"));
     }
     function openEventModal(item = {}) {
       const form = document.querySelector("#event-modal");
@@ -1226,14 +1385,17 @@ const webmailIndexHTML = `<!doctype html>
     }
     function render() {
       if (state.view !== "mail") return;
+      updateViewChrome("Search emails...");
       document.querySelector("#avatar").textContent = initials(state.email);
+      document.querySelector("#account-email").textContent = state.email || "--";
       document.querySelector(".pane-head h2").textContent = state.folder.charAt(0).toUpperCase() + state.folder.slice(1);
       renderFolders();
       const list = filteredMessages();
       document.querySelector("#messages").innerHTML = list.map((item, index) => {
         const active = state.selected && state.selected.id === item.id ? " active" : "";
+        const unread = item.unread ? " unread" : "";
         const tag = /spam|security|dkim|spf|tls/i.test(item.subject || item.preview || "") ? "<span class=\"tag\">SECURITY</span>" : "<span class=\"tag\">MAIL</span>";
-        return "<button class=\"message" + active + "\" data-id=\"" + esc(item.id) + "\"><div class=\"message-top\"><span class=\"from\">" + esc(shortFrom(item.from)) + "</span><span class=\"time\">" + esc(messageTime(item)) + "</span></div><div class=\"subject\">" + esc(item.subject || "(no subject)") + "</div><div class=\"preview\">" + esc(item.preview || "") + "</div>" + tag + "</button>";
+        return "<button class=\"message" + active + unread + "\" data-id=\"" + esc(item.id) + "\"><div class=\"message-top\"><span class=\"from\">" + esc(shortFrom(item.from)) + "</span><span class=\"time\">" + esc(messageTime(item)) + "</span></div><div class=\"subject\">" + esc(item.subject || "(no subject)") + "</div><div class=\"preview\">" + esc(item.preview || "") + "</div>" + tag + "</button>";
       }).join("");
       renderReader();
     }
@@ -1249,7 +1411,7 @@ const webmailIndexHTML = `<!doctype html>
           document.querySelector("#reader").innerHTML =
         "<h2>" + esc(item.subject || "(no subject)") + "</h2>" +
         "<div class=\"sender-row\"><div class=\"sender\"><div class=\"sender-icon\"><span class=\"material-symbols-outlined\">business</span></div><div><strong>" + esc(shortFrom(item.from)) + "</strong><div class=\"muted\">" + esc(item.from || "") + "</div><div class=\"muted\">To: " + esc(item.to || state.email) + "</div></div></div><div class=\"muted\">" + esc(messageTime(item)) + "</div></div>" +
-        "<div class=\"body\"><p>" + esc(detail.body || item.preview || "Message body is empty.").replace(/\n/g, "<br>") + "</p><div class=\"recommend\"><h3>MESSAGE SUMMARY</h3><ul><li>Mailbox: " + esc(item.mailbox) + "</li><li>Size: " + esc(item.size_bytes) + " bytes</li><li>Message ID: " + esc(item.id) + "</li></ul></div></div>";
+        "<div class=\"body\"><p>" + esc(detail.body || item.preview || "Message body is empty.").replace(/\n/g, "<br>") + "</p><div class=\"message-meta\"><div class=\"security-note\"><span class=\"material-symbols-outlined\">info</span><span>Sender authentication results are not stored for this message yet. No SPF, DKIM, TLS, or identity verification claim is being made.</span></div><div class=\"recommend\"><h3>MESSAGE SUMMARY</h3><ul><li>Mailbox: " + esc(item.mailbox) + "</li><li>Size: " + esc(item.size_bytes) + " bytes</li><li>Message ID: " + esc(item.id) + "</li></ul></div></div></div>";
         });
     }
     document.querySelector("#login").addEventListener("submit", async event => {
@@ -1267,10 +1429,12 @@ const webmailIndexHTML = `<!doctype html>
         const body = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(body.error || "Mailbox authentication failed");
         state.csrf = body.csrf_token;
+        setAuthenticated(true);
         document.querySelector("#login-panel").classList.add("hidden");
         await loadMessages();
         errorBox.textContent = "";
       } catch (error) {
+        setAuthenticated(false);
         document.querySelector("#login-panel").classList.remove("hidden");
         errorBox.className = "error";
         errorBox.textContent = error.message || "Mailbox login failed";
@@ -1317,6 +1481,7 @@ const webmailIndexHTML = `<!doctype html>
     document.querySelector("#open-folders-rail").addEventListener("click", async () => {
       try {
         state.view = "folders";
+        updateViewChrome("Search folders...");
         await loadFolders();
         document.querySelector("#reader").innerHTML = "<div class=\"workspace-head\"><div><h2>Folders</h2><div class=\"muted\">Create custom folders and open them from the left rail.</div></div><button class=\"primary-button\" id=\"add-folder-inline\" type=\"button\">New Folder</button></div><div class=\"mini-grid\">" + state.folders.map(folder => "<div class=\"mini-row\"><div><strong>" + esc(folder.name) + "</strong><div class=\"muted\">" + esc(folder.total || 0) + " messages</div></div><div class=\"compact-actions\"><button class=\"secondary-button\" data-open-folder=\"" + esc(folder.id) + "\"><span class=\"material-symbols-outlined\">folder_open</span>Open</button>" + (folder.system ? "" : "<button class=\"danger-button\" data-delete-folder=\"" + esc(folder.id) + "\"><span class=\"material-symbols-outlined\">delete</span>Delete</button>") + "</div></div>").join("") + "</div>";
         document.querySelector("#add-folder-inline").addEventListener("click", () => document.querySelector("#folder-modal").classList.remove("hidden"));
@@ -1368,8 +1533,13 @@ const webmailIndexHTML = `<!doctype html>
     document.querySelector("#logout").addEventListener("click", async () => {
       await api("/api/v1/session", {method: "DELETE"});
       state.csrf = "";
+      state.email = "";
+      setAuthenticated(false);
       document.querySelector("#login-panel").classList.remove("hidden");
     });
+    document.querySelector("#avatar").addEventListener("click", () => document.querySelector("#account-menu").classList.toggle("hidden"));
+    document.querySelector("#account-close").addEventListener("click", () => document.querySelector("#account-menu").classList.add("hidden"));
+    document.querySelector("#account-logout").addEventListener("click", () => document.querySelector("#logout").click());
     document.querySelectorAll("[data-editor-command]").forEach(button => button.addEventListener("click", () => {
       document.querySelector("#compose-editor").focus();
       document.execCommand(button.dataset.editorCommand, false, null);
@@ -1390,7 +1560,7 @@ const webmailIndexHTML = `<!doctype html>
       document.querySelector("#compose-editor").focus();
       document.execCommand("removeFormat", false, null);
     });
-    document.querySelector("#search").addEventListener("input", render);
+    document.querySelector("#search").addEventListener("input", renderCurrentView);
     document.addEventListener("click", event => {
       const editContact = event.target.closest("[data-edit-contact]");
       if (editContact) {
@@ -1438,7 +1608,10 @@ const webmailIndexHTML = `<!doctype html>
       state.selected = state.messages.find(item => item.id === button.dataset.id) || null;
       render();
     });
-    bootstrapSession().catch(error => document.querySelector("#error").textContent = error.message);
+    bootstrapSession().catch(error => {
+      setAuthenticated(false);
+      document.querySelector("#error").textContent = error.message;
+    });
   </script>
 </body>
 </html>

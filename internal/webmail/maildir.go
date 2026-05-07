@@ -24,6 +24,7 @@ type MessageSummary struct {
 	Preview   string    `json:"preview"`
 	Mailbox   string    `json:"mailbox"`
 	SizeBytes int64     `json:"size_bytes"`
+	Unread    bool      `json:"unread"`
 }
 
 type MessageDetail struct {
@@ -35,6 +36,7 @@ type MessageDetail struct {
 	Body      string    `json:"body"`
 	Mailbox   string    `json:"mailbox"`
 	SizeBytes int64     `json:"size_bytes"`
+	Unread    bool      `json:"unread"`
 }
 
 type MaildirStore struct {
@@ -129,11 +131,12 @@ func (s MaildirStore) ListFolders(ctx context.Context, email string) ([]MailFold
 		{ID: "trash", Name: "Trash", System: true},
 	}
 	for i := range folders {
-		total, err := countFolderMessages(root, folders[i].ID)
+		total, unread, err := countFolderMessages(root, folders[i].ID)
 		if err != nil {
 			return nil, err
 		}
 		folders[i].Total = total
+		folders[i].Unread = unread
 	}
 	entries, err := os.ReadDir(root)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -147,11 +150,11 @@ func (s MaildirStore) ListFolders(ctx context.Context, email string) ([]MailFold
 		if _, ok := systemFolderID(id); ok {
 			continue
 		}
-		total, err := countFolderMessages(root, id)
+		total, unread, err := countFolderMessages(root, id)
 		if err != nil {
 			return nil, err
 		}
-		folders = append(folders, MailFolder{ID: id, Name: id, System: false, Total: total})
+		folders = append(folders, MailFolder{ID: id, Name: id, System: false, Total: total, Unread: unread})
 	}
 	sort.SliceStable(folders[4:], func(i, j int) bool {
 		return strings.ToLower(folders[4+i].Name) < strings.ToLower(folders[4+j].Name)
@@ -218,6 +221,7 @@ func parseMessageSummary(path, maildirRoot string) (MessageSummary, error) {
 		Preview:   preview(msg.Body),
 		Mailbox:   mailbox,
 		SizeBytes: info.Size(),
+		Unread:    isUnreadPath(path),
 	}, nil
 }
 
@@ -357,23 +361,27 @@ func systemFolderID(name string) (string, bool) {
 	}
 }
 
-func countFolderMessages(root, folder string) (int, error) {
+func countFolderMessages(root, folder string) (int, int, error) {
 	count := 0
+	unread := 0
 	for _, mailbox := range folderMailboxes(folder) {
 		entries, err := os.ReadDir(filepath.Join(root, mailbox))
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
 				continue
 			}
-			return 0, fmt.Errorf("count folder %s: %w", folder, err)
+			return 0, 0, fmt.Errorf("count folder %s: %w", folder, err)
 		}
 		for _, entry := range entries {
 			if entry.Type().IsRegular() {
 				count++
+				if isUnreadMaildirEntry(mailbox, entry.Name()) {
+					unread++
+				}
 			}
 		}
 	}
-	return count, nil
+	return count, unread, nil
 }
 
 func parseMessageDetail(path, maildirRoot string) (MessageDetail, error) {
@@ -405,7 +413,26 @@ func parseMessageDetail(path, maildirRoot string) (MessageDetail, error) {
 		Body:      string(body),
 		Mailbox:   mailbox,
 		SizeBytes: info.Size(),
+		Unread:    isUnreadPath(path),
 	}, nil
+}
+
+func isUnreadPath(path string) bool {
+	parts := strings.Split(filepath.ToSlash(path), "/")
+	for i := 0; i < len(parts)-1; i++ {
+		if parts[i] == "new" {
+			return true
+		}
+	}
+	return false
+}
+
+func isUnreadMaildirEntry(mailbox, name string) bool {
+	dir := filepath.Base(filepath.ToSlash(mailbox))
+	if dir == "new" {
+		return true
+	}
+	return false
 }
 
 func preview(reader io.Reader) string {
