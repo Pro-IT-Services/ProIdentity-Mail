@@ -226,7 +226,8 @@ const webmailIndexHTML = `<!doctype html>
       color: var(--ink);
     }
     .message:hover { background: #fafaff; }
-    .message.active { background: rgba(218,226,253,.35); border-left-color: var(--primary); }
+    .message.active,
+    .message.selected { background: rgba(218,226,253,.35); border-left-color: var(--primary); }
     .message[draggable="true"] { cursor: grab; }
     .message.dragging { opacity: .55; }
     .message.unread .from, .message.unread .subject { font-weight: 800; }
@@ -806,7 +807,7 @@ const webmailIndexHTML = `<!doctype html>
 
     <section class="list-pane">
       <div class="pane-head"><h2>Inbox</h2><span class="material-symbols-outlined">filter_list</span></div>
-      <div class="message-list" id="messages"></div>
+      <div class="message-list" id="messages" tabindex="0"></div>
     </section>
 
     <section class="reader">
@@ -974,7 +975,7 @@ const webmailIndexHTML = `<!doctype html>
   </form>
 
   <script>
-    const state = { csrf: "", email: "", messages: [], selected: null, folder: "inbox", folders: [], filters: [], contacts: [], events: [], view: "mail", dragging: null };
+    const state = { csrf: "", email: "", messages: [], selected: null, selectedIds: new Set(), selectionAnchor: null, folder: "inbox", folders: [], filters: [], contacts: [], events: [], view: "mail", dragging: null };
     let toastTimer = null;
     const esc = value => String(value ?? "").replace(/[&<>"']/g, char => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[char]));
     const initials = email => String(email || "--").split("@")[0].split(/[._-]+/).filter(Boolean).slice(0, 2).map(part => part[0]).join("").toUpperCase() || "--";
@@ -1050,6 +1051,8 @@ const webmailIndexHTML = `<!doctype html>
       }
       state.messages = await response.json();
       state.selected = state.messages[0] || null;
+      state.selectedIds = new Set(state.selected ? [state.selected.id] : []);
+      state.selectionAnchor = state.selected ? state.selected.id : null;
       render();
     }
     async function loadFolders() {
@@ -1080,27 +1083,85 @@ const webmailIndexHTML = `<!doctype html>
       document.querySelector("#login-panel").classList.add("hidden");
       await loadMessages();
     }
+    const selectedIDs = () => filteredMessages().filter(item => state.selectedIds.has(item.id)).map(item => item.id);
+    const selectedCount = () => selectedIDs().length || (state.selected ? 1 : 0);
+    function activeSelectionIDs() {
+      const ids = selectedIDs();
+      if (ids.length) return ids;
+      return state.selected ? [state.selected.id] : [];
+    }
+    function selectMessageByID(id, additive = false) {
+      const item = state.messages.find(row => row.id === id) || null;
+      if (!item) return;
+      if (!additive) state.selectedIds.clear();
+      state.selectedIds.add(item.id);
+      state.selected = item;
+      state.selectionAnchor = item.id;
+    }
+    function selectMessageRange(toID) {
+      const list = filteredMessages();
+      if (!list.length) return;
+      const anchorID = state.selectionAnchor || (state.selected && state.selected.id) || list[0].id;
+      const start = Math.max(0, list.findIndex(item => item.id === anchorID));
+      const end = Math.max(0, list.findIndex(item => item.id === toID));
+      const left = Math.min(start, end);
+      const right = Math.max(start, end);
+      state.selectedIds.clear();
+      for (let i = left; i <= right; i++) state.selectedIds.add(list[i].id);
+      state.selected = list[end] || list[left] || null;
+    }
+    function handleMessageSelection(id, event = {}) {
+      if (event.shiftKey) {
+        selectMessageRange(id);
+      } else if (event.ctrlKey || event.metaKey) {
+        if (state.selectedIds.has(id)) state.selectedIds.delete(id);
+        else state.selectedIds.add(id);
+        state.selected = state.messages.find(item => item.id === id) || state.selected;
+        state.selectionAnchor = id;
+      } else {
+        selectMessageByID(id);
+      }
+      render();
+    }
+    function extendKeyboardSelection(direction) {
+      const list = filteredMessages();
+      if (!list.length) return;
+      const currentID = state.selected ? state.selected.id : list[0].id;
+      const current = Math.max(0, list.findIndex(item => item.id === currentID));
+      const next = Math.max(0, Math.min(list.length - 1, current + direction));
+      if (state.selectionAnchor == null) state.selectionAnchor = currentID;
+      selectMessageRange(list[next].id);
+      render();
+    }
     async function moveSelected(folder) {
-      if (!state.selected) {
-        showToast("Select a message first", true);
+      const ids = activeSelectionIDs();
+      if (!ids.length) {
+        showToast("Select messages first", true);
         return;
       }
-      const response = await fetch("/api/v1/messages/" + encodeURIComponent(state.selected.id) + "/move", {method: "POST", credentials: "same-origin", cache: "no-store", headers: {"Content-Type": "application/json", "X-CSRF-Token": state.csrf}, body: JSON.stringify({folder})});
+      const response = ids.length === 1
+        ? await fetch("/api/v1/messages/" + encodeURIComponent(ids[0]) + "/move", {method: "POST", credentials: "same-origin", cache: "no-store", headers: {"Content-Type": "application/json", "X-CSRF-Token": state.csrf}, body: JSON.stringify({folder})})
+        : await fetch("/api/v1/messages/batch/move", {method: "POST", credentials: "same-origin", cache: "no-store", headers: {"Content-Type": "application/json", "X-CSRF-Token": state.csrf}, body: JSON.stringify({ids, folder})});
       if (!response.ok) throw new Error("Move failed");
       await loadMessages();
-      showToast(folder === "trash" ? "Message moved to trash" : "Message moved to " + folder);
+      showToast((ids.length === 1 ? "Message" : ids.length + " messages") + (folder === "trash" ? " moved to trash" : " moved to " + folder));
     }
     async function deleteSelectedForever() {
-      if (!state.selected) {
-        showToast("Select a message first", true);
+      const ids = activeSelectionIDs();
+      if (!ids.length) {
+        showToast("Select messages first", true);
         return;
       }
-      if (!confirm("Delete this message forever? This cannot be undone.")) return;
-      const response = await fetch("/api/v1/messages/" + encodeURIComponent(state.selected.id) + "/delete", {method: "DELETE", credentials: "same-origin", cache: "no-store", headers: {"X-CSRF-Token": state.csrf}});
+      if (!confirm("Delete " + (ids.length === 1 ? "this message" : ids.length + " messages") + " forever? This cannot be undone.")) return;
+      const response = ids.length === 1
+        ? await fetch("/api/v1/messages/" + encodeURIComponent(ids[0]) + "/delete", {method: "DELETE", credentials: "same-origin", cache: "no-store", headers: {"X-CSRF-Token": state.csrf}})
+        : await fetch("/api/v1/messages/batch/delete", {method: "DELETE", credentials: "same-origin", cache: "no-store", headers: {"Content-Type": "application/json", "X-CSRF-Token": state.csrf}, body: JSON.stringify({ids})});
       if (!response.ok) throw new Error("Delete failed");
       state.selected = null;
+      state.selectedIds.clear();
+      state.selectionAnchor = null;
       await loadMessages();
-      showToast("Message deleted forever");
+      showToast(ids.length === 1 ? "Message deleted forever" : ids.length + " messages deleted forever");
     }
     function canDropMessage(targetFolder) {
       if (!state.dragging) return false;
@@ -1108,7 +1169,7 @@ const webmailIndexHTML = `<!doctype html>
       const target = String(targetFolder.id || "").toLowerCase();
       if (source === "spam") return false;
       if (source === "sent") return target === "trash";
-      if (source === "inbox") return target && !targetFolder.system;
+      if (source === "inbox") return target === "trash" || (target && !targetFolder.system);
       return false;
     }
     async function moveDraggedMessage(targetFolder) {
@@ -1139,6 +1200,8 @@ const webmailIndexHTML = `<!doctype html>
       document.querySelectorAll("[data-folder]").forEach(item => item.addEventListener("click", async () => {
         state.folder = item.dataset.folder;
         state.selected = null;
+        state.selectedIds.clear();
+        state.selectionAnchor = null;
         await loadMessages();
       }));
       document.querySelectorAll("[data-folder]").forEach(item => {
@@ -1454,9 +1517,10 @@ const webmailIndexHTML = `<!doctype html>
       const draggable = state.folder === "inbox" || state.folder === "sent";
       document.querySelector("#messages").innerHTML = list.map((item, index) => {
         const active = state.selected && state.selected.id === item.id ? " active" : "";
+        const selected = state.selectedIds.has(item.id) ? " selected" : "";
         const unread = item.unread ? " unread" : "";
         const tag = /spam|security|dkim|spf|tls/i.test(item.subject || item.preview || "") ? "<span class=\"tag\">SECURITY</span>" : "<span class=\"tag\">MAIL</span>";
-        return "<button class=\"message" + active + unread + "\" data-id=\"" + esc(item.id) + "\" draggable=\"" + (draggable ? "true" : "false") + "\"><div class=\"message-top\"><span class=\"from\">" + esc(shortFrom(item.from)) + "</span><span class=\"time\">" + esc(messageTime(item)) + "</span></div><div class=\"subject\">" + esc(item.subject || "(no subject)") + "</div><div class=\"preview\">" + esc(item.preview || "") + "</div>" + tag + "</button>";
+        return "<button class=\"message" + active + selected + unread + "\" data-id=\"" + esc(item.id) + "\" data-index=\"" + index + "\" draggable=\"" + (draggable ? "true" : "false") + "\" aria-selected=\"" + (state.selectedIds.has(item.id) ? "true" : "false") + "\"><div class=\"message-top\"><span class=\"from\">" + esc(shortFrom(item.from)) + "</span><span class=\"time\">" + esc(messageTime(item)) + "</span></div><div class=\"subject\">" + esc(item.subject || "(no subject)") + "</div><div class=\"preview\">" + esc(item.preview || "") + "</div>" + tag + "</button>";
       }).join("");
       document.querySelectorAll(".message[draggable='true']").forEach(item => {
         item.addEventListener("dragstart", event => {
@@ -1679,8 +1743,31 @@ const webmailIndexHTML = `<!doctype html>
       }
       const button = event.target.closest("[data-id]");
       if (!button) return;
-      state.selected = state.messages.find(item => item.id === button.dataset.id) || null;
-      render();
+      handleMessageSelection(button.dataset.id, event);
+    });
+    document.querySelector("#messages").addEventListener("keydown", event => {
+      if (state.view !== "mail") return;
+      if (event.shiftKey && event.key === "ArrowDown") {
+        event.preventDefault();
+        extendKeyboardSelection(1);
+      } else if (event.shiftKey && event.key === "ArrowUp") {
+        event.preventDefault();
+        extendKeyboardSelection(-1);
+      } else if (!event.shiftKey && event.key === "ArrowDown") {
+        const list = filteredMessages();
+        if (!list.length) return;
+        const current = Math.max(0, list.findIndex(item => state.selected && item.id === state.selected.id));
+        event.preventDefault();
+        selectMessageByID(list[Math.min(list.length - 1, current + 1)].id);
+        render();
+      } else if (!event.shiftKey && event.key === "ArrowUp") {
+        const list = filteredMessages();
+        if (!list.length) return;
+        const current = Math.max(0, list.findIndex(item => state.selected && item.id === state.selected.id));
+        event.preventDefault();
+        selectMessageByID(list[Math.max(0, current - 1)].id);
+        render();
+      }
     });
     bootstrapSession().catch(error => {
       setAuthenticated(false);

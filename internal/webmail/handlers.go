@@ -3,6 +3,7 @@ package webmail
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"net"
 	"net/http"
@@ -99,6 +100,8 @@ func NewRouter(store Store, managers ...*session.Manager) http.Handler {
 	mux.HandleFunc("/healthz", health)
 	mux.HandleFunc("/api/v1/session", h.session)
 	mux.HandleFunc("/api/v1/messages", h.messages)
+	mux.HandleFunc("/api/v1/messages/batch/move", h.batchMoveMessages)
+	mux.HandleFunc("/api/v1/messages/batch/delete", h.batchDeleteMessages)
 	mux.HandleFunc("/api/v1/messages/", h.message)
 	mux.HandleFunc("/api/v1/send", h.send)
 	mux.HandleFunc("/api/v1/folders", h.folders)
@@ -233,12 +236,55 @@ func (h handler) moveMessage(w http.ResponseWriter, r *http.Request, email, id s
 		writeError(w, http.StatusBadRequest, "valid folder is required")
 		return
 	}
+	if err := h.validateMove(r.Context(), email, id, req.Folder); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	if err := h.store.MoveMessage(r.Context(), email, id, req.Folder); err != nil {
 		log.Printf("webmail move failed email=%q id=%q folder=%q: %v", email, id, req.Folder, err)
 		writeError(w, http.StatusInternalServerError, "move message failed")
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "moved"})
+}
+
+func (h handler) batchMoveMessages(w http.ResponseWriter, r *http.Request) {
+	email, ok := h.authorized(w, r)
+	if !ok {
+		return
+	}
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		IDs    []string `json:"ids"`
+		Folder string   `json:"folder"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	req.Folder = strings.TrimSpace(req.Folder)
+	if len(req.IDs) == 0 {
+		writeError(w, http.StatusBadRequest, "message ids are required")
+		return
+	}
+	for _, id := range req.IDs {
+		if err := h.validateMove(r.Context(), email, id, req.Folder); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+	for _, id := range req.IDs {
+		if err := h.store.MoveMessage(r.Context(), email, id, req.Folder); err != nil {
+			log.Printf("webmail batch move failed email=%q id=%q folder=%q: %v", email, id, req.Folder, err)
+			writeError(w, http.StatusInternalServerError, "move messages failed")
+			return
+		}
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{"status": "moved", "count": len(req.IDs)})
 }
 
 func (h handler) deleteMessage(w http.ResponseWriter, r *http.Request, email, id string) {
@@ -251,12 +297,126 @@ func (h handler) deleteMessage(w http.ResponseWriter, r *http.Request, email, id
 		writeError(w, http.StatusBadRequest, "message id is required")
 		return
 	}
+	if err := h.validateDelete(r.Context(), email, id); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	if err := h.store.DeleteMessage(r.Context(), email, id); err != nil {
 		log.Printf("webmail delete failed email=%q id=%q: %v", email, id, err)
 		writeError(w, http.StatusInternalServerError, "delete message failed")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h handler) batchDeleteMessages(w http.ResponseWriter, r *http.Request) {
+	email, ok := h.authorized(w, r)
+	if !ok {
+		return
+	}
+	if r.Method != http.MethodDelete && r.Method != http.MethodPost {
+		w.Header().Set("Allow", "DELETE, POST")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		IDs []string `json:"ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	if len(req.IDs) == 0 {
+		writeError(w, http.StatusBadRequest, "message ids are required")
+		return
+	}
+	for _, id := range req.IDs {
+		if err := h.validateDelete(r.Context(), email, id); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+	for _, id := range req.IDs {
+		if err := h.store.DeleteMessage(r.Context(), email, id); err != nil {
+			log.Printf("webmail batch delete failed email=%q id=%q: %v", email, id, err)
+			writeError(w, http.StatusInternalServerError, "delete messages failed")
+			return
+		}
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h handler) validateMove(ctx context.Context, email, id, folder string) error {
+	id = strings.TrimSpace(id)
+	folder = strings.TrimSpace(folder)
+	if id == "" {
+		return errors.New("message id is required")
+	}
+	if folder == "" || strings.ContainsAny(folder, `/\:`) || strings.Contains(folder, "..") {
+		return errors.New("valid folder is required")
+	}
+	message, err := h.store.GetMessage(ctx, email, id)
+	if err != nil {
+		return errors.New("message not found")
+	}
+	source := messageFolderID(message.Mailbox)
+	target := strings.ToLower(strings.TrimPrefix(folder, "."))
+	switch source {
+	case "spam":
+		return errors.New("spam messages cannot be moved")
+	case "sent":
+		if target == "trash" {
+			return nil
+		}
+	case "inbox":
+		if target == "trash" || target == "archive" || isCustomFolderTarget(folder) {
+			return nil
+		}
+	}
+	return errors.New("this move is not allowed")
+}
+
+func (h handler) validateDelete(ctx context.Context, email, id string) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return errors.New("message id is required")
+	}
+	message, err := h.store.GetMessage(ctx, email, id)
+	if err != nil {
+		return errors.New("message not found")
+	}
+	if messageFolderID(message.Mailbox) != "trash" {
+		return errors.New("messages can only be permanently deleted from trash")
+	}
+	return nil
+}
+
+func messageFolderID(mailbox string) string {
+	name := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(mailbox), "."))
+	switch name {
+	case "", "new", "cur":
+		return "inbox"
+	case "trash":
+		return "trash"
+	case "spam":
+		return "spam"
+	case "sent":
+		return "sent"
+	case "archive":
+		return "archive"
+	default:
+		return name
+	}
+}
+
+func isCustomFolderTarget(folder string) bool {
+	name := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(folder), "."))
+	switch name {
+	case "", "inbox", "new", "cur", "sent", "archive", "spam", "trash":
+		return false
+	default:
+		return true
+	}
 }
 
 func (h handler) send(w http.ResponseWriter, r *http.Request) {

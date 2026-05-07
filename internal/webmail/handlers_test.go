@@ -247,7 +247,7 @@ func TestMoveMessageEndpointMovesSelectedMessage(t *testing.T) {
 }
 
 func TestDeleteMessageEndpointDeletesSelectedMessage(t *testing.T) {
-	store := &fakeStore{valid: true}
+	store := &fakeStore{valid: true, messageMailbox: ".Trash"}
 	handler := NewRouter(store)
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/messages/1/delete", nil)
 	req.SetBasicAuth("marko@example.com", "secret123456")
@@ -260,6 +260,77 @@ func TestDeleteMessageEndpointDeletesSelectedMessage(t *testing.T) {
 	}
 	if store.deletedMessageEmail != "marko@example.com" || store.deletedMessageID != "1" {
 		t.Fatalf("unexpected delete: email=%q id=%q", store.deletedMessageEmail, store.deletedMessageID)
+	}
+}
+
+func TestMoveMessageEndpointRejectsSpamMove(t *testing.T) {
+	store := &fakeStore{valid: true, messageMailbox: ".Spam"}
+	handler := NewRouter(store)
+	body := `{"folder":"trash"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/messages/1/move", strings.NewReader(body))
+	req.SetBasicAuth("marko@example.com", "secret123456")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d, body %s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+	if store.movedID != "" {
+		t.Fatalf("spam message was moved unexpectedly: id=%q", store.movedID)
+	}
+}
+
+func TestDeleteMessageEndpointRejectsNonTrashMessage(t *testing.T) {
+	store := &fakeStore{valid: true, messageMailbox: "new"}
+	handler := NewRouter(store)
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/messages/1/delete", nil)
+	req.SetBasicAuth("marko@example.com", "secret123456")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d, body %s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+	if store.deletedMessageID != "" {
+		t.Fatalf("non-trash message was deleted unexpectedly: id=%q", store.deletedMessageID)
+	}
+}
+
+func TestBatchMoveMessagesEndpointMovesSelectedMessages(t *testing.T) {
+	store := &fakeStore{valid: true, messageMailboxes: map[string]string{"1": "new", "2": "new"}}
+	handler := NewRouter(store)
+	body := `{"ids":["1","2"],"folder":"trash"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/messages/batch/move", strings.NewReader(body))
+	req.SetBasicAuth("marko@example.com", "secret123456")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want %d, body %s", rec.Code, http.StatusAccepted, rec.Body.String())
+	}
+	if strings.Join(store.movedIDs, ",") != "1,2" || store.movedFolder != "trash" {
+		t.Fatalf("unexpected batch move: ids=%v folder=%q", store.movedIDs, store.movedFolder)
+	}
+}
+
+func TestBatchDeleteMessagesEndpointDeletesTrashMessages(t *testing.T) {
+	store := &fakeStore{valid: true, messageMailboxes: map[string]string{"1": ".Trash", "2": ".Trash"}}
+	handler := NewRouter(store)
+	body := `{"ids":["1","2"]}`
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/messages/batch/delete", strings.NewReader(body))
+	req.SetBasicAuth("marko@example.com", "secret123456")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d, body %s", rec.Code, http.StatusNoContent, rec.Body.String())
+	}
+	if strings.Join(store.deletedMessageIDs, ",") != "1,2" {
+		t.Fatalf("unexpected batch delete ids=%v", store.deletedMessageIDs)
 	}
 }
 
@@ -498,9 +569,13 @@ type fakeStore struct {
 	deletedFilterID      string
 	movedEmail           string
 	movedID              string
+	movedIDs             []string
 	movedFolder          string
 	deletedMessageEmail  string
 	deletedMessageID     string
+	deletedMessageIDs    []string
+	messageMailbox       string
+	messageMailboxes     map[string]string
 	createdContact       Contact
 	updatedContactID     string
 	updatedContact       Contact
@@ -528,7 +603,11 @@ func (s *fakeStore) ListMessages(ctx context.Context, email, folder string, limi
 }
 
 func (s *fakeStore) GetMessage(ctx context.Context, email, id string) (MessageDetail, error) {
-	return MessageDetail{ID: id, From: "sender@example.net", To: email, Subject: "Welcome", Body: "Full body"}, nil
+	mailbox := s.messageMailbox
+	if s.messageMailboxes != nil && s.messageMailboxes[id] != "" {
+		mailbox = s.messageMailboxes[id]
+	}
+	return MessageDetail{ID: id, From: "sender@example.net", To: email, Subject: "Welcome", Body: "Full body", Mailbox: mailbox}, nil
 }
 
 func (s *fakeStore) SendMessage(ctx context.Context, message OutboundMessage) error {
@@ -550,6 +629,7 @@ func (s *fakeStore) ReportMessage(ctx context.Context, email, id, verdict string
 func (s *fakeStore) MoveMessage(ctx context.Context, email, id, folder string) error {
 	s.movedEmail = email
 	s.movedID = id
+	s.movedIDs = append(s.movedIDs, id)
 	s.movedFolder = folder
 	return nil
 }
@@ -557,6 +637,7 @@ func (s *fakeStore) MoveMessage(ctx context.Context, email, id, folder string) e
 func (s *fakeStore) DeleteMessage(ctx context.Context, email, id string) error {
 	s.deletedMessageEmail = email
 	s.deletedMessageID = id
+	s.deletedMessageIDs = append(s.deletedMessageIDs, id)
 	return nil
 }
 
