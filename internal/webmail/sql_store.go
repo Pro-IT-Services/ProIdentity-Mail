@@ -500,6 +500,10 @@ func (s CompositeStore) MoveMessage(ctx context.Context, email, id, folder strin
 	return s.Mailbox.MoveMessage(ctx, email, id, folder)
 }
 
+func (s CompositeStore) DeleteMessage(ctx context.Context, email, id string) error {
+	return s.Mailbox.DeleteMessage(ctx, email, id)
+}
+
 func (s CompositeStore) ListFolders(ctx context.Context, email string) ([]MailFolder, error) {
 	return s.Mailbox.ListFolders(ctx, email)
 }

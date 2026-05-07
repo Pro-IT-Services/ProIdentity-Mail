@@ -182,3 +182,25 @@ func TestMaildirStoreMovesMessageToSpamFolder(t *testing.T) {
 		t.Fatalf("mailbox = %q, want .Spam", message.Mailbox)
 	}
 }
+
+func TestMaildirStoreDeletesMessagePermanently(t *testing.T) {
+	root := t.TempDir()
+	messageDir := filepath.Join(root, "example.com", "marko", "Maildir", ".Trash", "new")
+	if err := os.MkdirAll(messageDir, 0750); err != nil {
+		t.Fatalf("mkdir trash: %v", err)
+	}
+	messageID := "message-1"
+	raw := "From: sender@example.net\r\nTo: marko@example.com\r\nSubject: Trash\r\n\r\ntrash body"
+	messagePath := filepath.Join(messageDir, messageID)
+	if err := os.WriteFile(messagePath, []byte(raw), 0640); err != nil {
+		t.Fatalf("write message: %v", err)
+	}
+
+	store := MaildirStore{Root: root}
+	if err := store.DeleteMessage(context.Background(), "marko@example.com", messageID); err != nil {
+		t.Fatalf("DeleteMessage returned error: %v", err)
+	}
+	if _, err := os.Stat(messagePath); !os.IsNotExist(err) {
+		t.Fatalf("message still exists or stat failed unexpectedly: %v", err)
+	}
+}

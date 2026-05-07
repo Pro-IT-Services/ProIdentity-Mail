@@ -246,6 +246,23 @@ func TestMoveMessageEndpointMovesSelectedMessage(t *testing.T) {
 	}
 }
 
+func TestDeleteMessageEndpointDeletesSelectedMessage(t *testing.T) {
+	store := &fakeStore{valid: true}
+	handler := NewRouter(store)
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/messages/1/delete", nil)
+	req.SetBasicAuth("marko@example.com", "secret123456")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d, body %s", rec.Code, http.StatusNoContent, rec.Body.String())
+	}
+	if store.deletedMessageEmail != "marko@example.com" || store.deletedMessageID != "1" {
+		t.Fatalf("unexpected delete: email=%q id=%q", store.deletedMessageEmail, store.deletedMessageID)
+	}
+}
+
 func TestFoldersEndpointCreatesFolder(t *testing.T) {
 	store := &fakeStore{valid: true}
 	handler := NewRouter(store)
@@ -482,6 +499,8 @@ type fakeStore struct {
 	movedEmail           string
 	movedID              string
 	movedFolder          string
+	deletedMessageEmail  string
+	deletedMessageID     string
 	createdContact       Contact
 	updatedContactID     string
 	updatedContact       Contact
@@ -532,6 +551,12 @@ func (s *fakeStore) MoveMessage(ctx context.Context, email, id, folder string) e
 	s.movedEmail = email
 	s.movedID = id
 	s.movedFolder = folder
+	return nil
+}
+
+func (s *fakeStore) DeleteMessage(ctx context.Context, email, id string) error {
+	s.deletedMessageEmail = email
+	s.deletedMessageID = id
 	return nil
 }
 

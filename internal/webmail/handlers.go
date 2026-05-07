@@ -23,6 +23,7 @@ type Store interface {
 	SaveSentMessage(ctx context.Context, message OutboundMessage) error
 	ReportMessage(ctx context.Context, email, id, verdict string) error
 	MoveMessage(ctx context.Context, email, id, folder string) error
+	DeleteMessage(ctx context.Context, email, id string) error
 	ListFolders(ctx context.Context, email string) ([]MailFolder, error)
 	CreateFolder(ctx context.Context, email, name string) (MailFolder, error)
 	DeleteFolder(ctx context.Context, email, name string) error
@@ -159,6 +160,10 @@ func (h handler) message(w http.ResponseWriter, r *http.Request) {
 		h.moveMessage(w, r, email, strings.TrimSuffix(id, "/move"))
 		return
 	}
+	if strings.HasSuffix(id, "/delete") {
+		h.deleteMessage(w, r, email, strings.TrimSuffix(id, "/delete"))
+		return
+	}
 	if id == "" {
 		writeError(w, http.StatusBadRequest, "message id is required")
 		return
@@ -234,6 +239,24 @@ func (h handler) moveMessage(w http.ResponseWriter, r *http.Request, email, id s
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "moved"})
+}
+
+func (h handler) deleteMessage(w http.ResponseWriter, r *http.Request, email, id string) {
+	if r.Method != http.MethodDelete && r.Method != http.MethodPost {
+		w.Header().Set("Allow", "DELETE, POST")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "message id is required")
+		return
+	}
+	if err := h.store.DeleteMessage(r.Context(), email, id); err != nil {
+		log.Printf("webmail delete failed email=%q id=%q: %v", email, id, err)
+		writeError(w, http.StatusInternalServerError, "delete message failed")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h handler) send(w http.ResponseWriter, r *http.Request) {

@@ -263,6 +263,18 @@ func (s MaildirStore) MoveMessage(ctx context.Context, email, id, folder string)
 	return os.Rename(source, filepath.Join(destinationDir, filepath.Base(source)))
 }
 
+func (s MaildirStore) DeleteMessage(ctx context.Context, email, id string) error {
+	root, err := s.maildirRoot(email)
+	if err != nil {
+		return err
+	}
+	source, err := s.messagePath(ctx, root, id)
+	if err != nil {
+		return err
+	}
+	return os.Remove(source)
+}
+
 func (s MaildirStore) SaveSentMessage(ctx context.Context, message OutboundMessage) error {
 	root, err := s.maildirRoot(message.From)
 	if err != nil {
