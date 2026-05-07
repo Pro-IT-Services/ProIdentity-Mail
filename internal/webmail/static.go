@@ -1034,6 +1034,11 @@ const webmailIndexHTML = `<!doctype html>
       if (response.status === 204) return null;
       return response.json();
     };
+    async function responseError(response, fallback) {
+      let message = fallback;
+      try { message = (await response.json()).error || message; } catch {}
+      return new Error(message);
+    }
     function showToast(message, isError = false) {
       const box = document.querySelector("#toast");
       clearTimeout(toastTimer);
@@ -1122,6 +1127,13 @@ const webmailIndexHTML = `<!doctype html>
         selectMessageByID(id);
       }
       render();
+      focusMessage(id);
+    }
+    function focusMessage(id) {
+      setTimeout(() => {
+        const target = document.querySelector(".message[data-id=\"" + CSS.escape(id) + "\"]");
+        if (target) target.focus({preventScroll: true});
+      }, 0);
     }
     function extendKeyboardSelection(direction) {
       const list = filteredMessages();
@@ -1132,6 +1144,7 @@ const webmailIndexHTML = `<!doctype html>
       if (state.selectionAnchor == null) state.selectionAnchor = currentID;
       selectMessageRange(list[next].id);
       render();
+      focusMessage(list[next].id);
     }
     async function moveSelected(folder) {
       const ids = activeSelectionIDs();
@@ -1142,7 +1155,7 @@ const webmailIndexHTML = `<!doctype html>
       const response = ids.length === 1
         ? await fetch("/api/v1/messages/" + encodeURIComponent(ids[0]) + "/move", {method: "POST", credentials: "same-origin", cache: "no-store", headers: {"Content-Type": "application/json", "X-CSRF-Token": state.csrf}, body: JSON.stringify({folder})})
         : await fetch("/api/v1/messages/batch/move", {method: "POST", credentials: "same-origin", cache: "no-store", headers: {"Content-Type": "application/json", "X-CSRF-Token": state.csrf}, body: JSON.stringify({ids, folder})});
-      if (!response.ok) throw new Error("Move failed");
+      if (!response.ok) throw await responseError(response, "Move failed");
       await loadMessages();
       showToast((ids.length === 1 ? "Message" : ids.length + " messages") + (folder === "trash" ? " moved to trash" : " moved to " + folder));
     }
@@ -1156,7 +1169,7 @@ const webmailIndexHTML = `<!doctype html>
       const response = ids.length === 1
         ? await fetch("/api/v1/messages/" + encodeURIComponent(ids[0]) + "/delete", {method: "DELETE", credentials: "same-origin", cache: "no-store", headers: {"X-CSRF-Token": state.csrf}})
         : await fetch("/api/v1/messages/batch/delete", {method: "DELETE", credentials: "same-origin", cache: "no-store", headers: {"Content-Type": "application/json", "X-CSRF-Token": state.csrf}, body: JSON.stringify({ids})});
-      if (!response.ok) throw new Error("Delete failed");
+      if (!response.ok) throw await responseError(response, "Delete failed");
       state.selected = null;
       state.selectedIds.clear();
       state.selectionAnchor = null;
@@ -1179,7 +1192,7 @@ const webmailIndexHTML = `<!doctype html>
         return;
       }
       const response = await fetch("/api/v1/messages/" + encodeURIComponent(state.dragging.id) + "/move", {method: "POST", credentials: "same-origin", cache: "no-store", headers: {"Content-Type": "application/json", "X-CSRF-Token": state.csrf}, body: JSON.stringify({folder: targetFolder.id})});
-      if (!response.ok) throw new Error("Move failed");
+      if (!response.ok) throw await responseError(response, "Move failed");
       await loadMessages();
       showToast("Message moved to " + targetFolder.name);
     }
@@ -1411,17 +1424,21 @@ const webmailIndexHTML = `<!doctype html>
       await loadCalendarView();
     }
     async function reportSelected(verdict) {
-      if (!state.selected) {
-        showToast("Select a message first", true);
+      const ids = activeSelectionIDs();
+      if (!ids.length) {
+        showToast("Select messages first", true);
         return;
       }
-      const response = await fetch("/api/v1/messages/" + encodeURIComponent(state.selected.id) + "/report", {method: "POST", credentials: "same-origin", cache: "no-store", headers: {"Content-Type": "application/json", "X-CSRF-Token": state.csrf}, body: JSON.stringify({verdict})});
-      if (!response.ok) throw new Error("Message report failed");
+      for (const id of ids) {
+        const response = await fetch("/api/v1/messages/" + encodeURIComponent(id) + "/report", {method: "POST", credentials: "same-origin", cache: "no-store", headers: {"Content-Type": "application/json", "X-CSRF-Token": state.csrf}, body: JSON.stringify({verdict})});
+        if (!response.ok) throw await responseError(response, "Message report failed");
+      }
       await loadMessages();
-      showToast(verdict === "spam" ? "Marked as spam" : "Marked as not spam");
+      showToast((ids.length === 1 ? "Message" : ids.length + " messages") + (verdict === "spam" ? " marked as spam" : " marked as not spam"));
     }
     async function selectedDetail() {
       if (!state.selected) throw new Error("Select a message first");
+      if (activeSelectionIDs().length > 1) throw new Error("Reply and forward work with one selected message");
       const response = await fetch("/api/v1/messages/" + encodeURIComponent(state.selected.id), {credentials: "same-origin", cache: "no-store"});
       return response.ok ? response.json() : state.selected;
     }
@@ -1745,8 +1762,10 @@ const webmailIndexHTML = `<!doctype html>
       if (!button) return;
       handleMessageSelection(button.dataset.id, event);
     });
-    document.querySelector("#messages").addEventListener("keydown", event => {
+    function handleMessageKeydown(event) {
       if (state.view !== "mail") return;
+      const active = document.activeElement;
+      if (active && (active.matches("input, textarea, select") || active.isContentEditable)) return;
       if (event.shiftKey && event.key === "ArrowDown") {
         event.preventDefault();
         extendKeyboardSelection(1);
@@ -1758,17 +1777,22 @@ const webmailIndexHTML = `<!doctype html>
         if (!list.length) return;
         const current = Math.max(0, list.findIndex(item => state.selected && item.id === state.selected.id));
         event.preventDefault();
-        selectMessageByID(list[Math.min(list.length - 1, current + 1)].id);
+        const nextID = list[Math.min(list.length - 1, current + 1)].id;
+        selectMessageByID(nextID);
         render();
+        focusMessage(nextID);
       } else if (!event.shiftKey && event.key === "ArrowUp") {
         const list = filteredMessages();
         if (!list.length) return;
         const current = Math.max(0, list.findIndex(item => state.selected && item.id === state.selected.id));
         event.preventDefault();
-        selectMessageByID(list[Math.max(0, current - 1)].id);
+        const nextID = list[Math.max(0, current - 1)].id;
+        selectMessageByID(nextID);
         render();
+        focusMessage(nextID);
       }
-    });
+    }
+    document.addEventListener("keydown", handleMessageKeydown);
     bootstrapSession().catch(error => {
       setAuthenticated(false);
       document.querySelector("#error").textContent = error.message;
