@@ -16,27 +16,29 @@ import (
 )
 
 type MessageSummary struct {
-	ID        string    `json:"id"`
-	From      string    `json:"from"`
-	To        string    `json:"to"`
-	Subject   string    `json:"subject"`
-	Date      time.Time `json:"date"`
-	Preview   string    `json:"preview"`
-	Mailbox   string    `json:"mailbox"`
-	SizeBytes int64     `json:"size_bytes"`
-	Unread    bool      `json:"unread"`
+	ID          string    `json:"id"`
+	From        string    `json:"from"`
+	To          string    `json:"to"`
+	Subject     string    `json:"subject"`
+	Date        time.Time `json:"date"`
+	Preview     string    `json:"preview"`
+	Mailbox     string    `json:"mailbox"`
+	TrashOrigin string    `json:"trash_origin,omitempty"`
+	SizeBytes   int64     `json:"size_bytes"`
+	Unread      bool      `json:"unread"`
 }
 
 type MessageDetail struct {
-	ID        string    `json:"id"`
-	From      string    `json:"from"`
-	To        string    `json:"to"`
-	Subject   string    `json:"subject"`
-	Date      time.Time `json:"date"`
-	Body      string    `json:"body"`
-	Mailbox   string    `json:"mailbox"`
-	SizeBytes int64     `json:"size_bytes"`
-	Unread    bool      `json:"unread"`
+	ID          string    `json:"id"`
+	From        string    `json:"from"`
+	To          string    `json:"to"`
+	Subject     string    `json:"subject"`
+	Date        time.Time `json:"date"`
+	Body        string    `json:"body"`
+	Mailbox     string    `json:"mailbox"`
+	TrashOrigin string    `json:"trash_origin,omitempty"`
+	SizeBytes   int64     `json:"size_bytes"`
+	Unread      bool      `json:"unread"`
 }
 
 type MaildirStore struct {
@@ -216,15 +218,16 @@ func parseMessageSummary(path, maildirRoot string) (MessageSummary, error) {
 	rel, _ := filepath.Rel(maildirRoot, path)
 	mailbox := strings.Split(filepath.ToSlash(rel), "/")[0]
 	return MessageSummary{
-		ID:        filepath.Base(path),
-		From:      msg.Header.Get("From"),
-		To:        msg.Header.Get("To"),
-		Subject:   msg.Header.Get("Subject"),
-		Date:      date,
-		Preview:   preview(msg.Body),
-		Mailbox:   mailbox,
-		SizeBytes: info.Size(),
-		Unread:    isUnreadPath(path),
+		ID:          filepath.Base(path),
+		From:        msg.Header.Get("From"),
+		To:          msg.Header.Get("To"),
+		Subject:     msg.Header.Get("Subject"),
+		Date:        date,
+		Preview:     preview(msg.Body),
+		Mailbox:     mailbox,
+		TrashOrigin: normalizeTrashOrigin(msg.Header.Get("X-ProIdentity-Trash-Origin")),
+		SizeBytes:   info.Size(),
+		Unread:      isUnreadPath(path),
 	}, nil
 }
 
@@ -259,6 +262,14 @@ func (s MaildirStore) MoveMessage(ctx context.Context, email, id, folder string)
 	}
 	if err := os.MkdirAll(destinationDir, 0750); err != nil {
 		return err
+	}
+	if destinationMailbox == ".Trash" {
+		origin := mailboxIDFromPath(root, source)
+		if origin != "" && origin != "trash" {
+			if err := addTrashOriginHeader(source, origin); err != nil {
+				return err
+			}
+		}
 	}
 	return os.Rename(source, filepath.Join(destinationDir, filepath.Base(source)))
 }
@@ -442,16 +453,94 @@ func parseMessageDetail(path, maildirRoot string) (MessageDetail, error) {
 	rel, _ := filepath.Rel(maildirRoot, path)
 	mailbox := strings.Split(filepath.ToSlash(rel), "/")[0]
 	return MessageDetail{
-		ID:        filepath.Base(path),
-		From:      msg.Header.Get("From"),
-		To:        msg.Header.Get("To"),
-		Subject:   msg.Header.Get("Subject"),
-		Date:      date,
-		Body:      string(body),
-		Mailbox:   mailbox,
-		SizeBytes: info.Size(),
-		Unread:    isUnreadPath(path),
+		ID:          filepath.Base(path),
+		From:        msg.Header.Get("From"),
+		To:          msg.Header.Get("To"),
+		Subject:     msg.Header.Get("Subject"),
+		Date:        date,
+		Body:        string(body),
+		Mailbox:     mailbox,
+		TrashOrigin: normalizeTrashOrigin(msg.Header.Get("X-ProIdentity-Trash-Origin")),
+		SizeBytes:   info.Size(),
+		Unread:      isUnreadPath(path),
 	}, nil
+}
+
+func mailboxIDFromPath(root, path string) string {
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return ""
+	}
+	parts := strings.Split(filepath.ToSlash(rel), "/")
+	if len(parts) == 0 {
+		return ""
+	}
+	switch parts[0] {
+	case "new", "cur":
+		return "inbox"
+	case ".Trash":
+		return "trash"
+	case ".Sent":
+		return "sent"
+	case ".Spam":
+		return "spam"
+	case ".Archive":
+		return "archive"
+	default:
+		return normalizeTrashOrigin(parts[0])
+	}
+}
+
+func addTrashOriginHeader(path, origin string) error {
+	origin = normalizeTrashOrigin(origin)
+	if origin == "" {
+		return nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	if bytes.Contains(bytes.ToLower(data), []byte("\nx-proidentity-trash-origin:")) || bytes.HasPrefix(bytes.ToLower(data), []byte("x-proidentity-trash-origin:")) {
+		return nil
+	}
+	header := []byte("X-ProIdentity-Trash-Origin: " + origin + "\r\n")
+	if index := bytes.Index(data, []byte("\r\n\r\n")); index >= 0 {
+		out := make([]byte, 0, len(data)+len(header))
+		out = append(out, data[:index+2]...)
+		out = append(out, header...)
+		out = append(out, data[index+2:]...)
+		return os.WriteFile(path, out, 0640)
+	}
+	if index := bytes.Index(data, []byte("\n\n")); index >= 0 {
+		out := make([]byte, 0, len(data)+len(header))
+		out = append(out, data[:index+1]...)
+		out = append(out, header...)
+		out = append(out, data[index+1:]...)
+		return os.WriteFile(path, out, 0640)
+	}
+	out := append(header, data...)
+	return os.WriteFile(path, out, 0640)
+}
+
+func normalizeTrashOrigin(value string) string {
+	cleaned := strings.TrimPrefix(strings.TrimSpace(value), ".")
+	if cleaned == "" || strings.ContainsAny(cleaned, "\r\n/\\:") || strings.Contains(cleaned, "..") {
+		return ""
+	}
+	switch strings.ToLower(cleaned) {
+	case "new", "cur":
+		return "inbox"
+	case "sent":
+		return "sent"
+	case "trash":
+		return "trash"
+	case "spam":
+		return "spam"
+	case "archive":
+		return "archive"
+	default:
+		return cleaned
+	}
 }
 
 func isUnreadPath(path string) bool {

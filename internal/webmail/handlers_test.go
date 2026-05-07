@@ -334,6 +334,40 @@ func TestBatchDeleteMessagesEndpointDeletesTrashMessages(t *testing.T) {
 	}
 }
 
+func TestMoveMessageEndpointRestoresSentTrashOnlyToSent(t *testing.T) {
+	store := &fakeStore{valid: true, messageMailbox: ".Trash", messageTrashOrigin: "sent"}
+	handler := NewRouter(store)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/messages/1/move", strings.NewReader(`{"folder":"sent"}`))
+	req.SetBasicAuth("marko@example.com", "secret123456")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want %d, body %s", rec.Code, http.StatusAccepted, rec.Body.String())
+	}
+	if store.movedFolder != "sent" {
+		t.Fatalf("moved folder = %q, want sent", store.movedFolder)
+	}
+}
+
+func TestMoveMessageEndpointRejectsSentTrashRestoreToInbox(t *testing.T) {
+	store := &fakeStore{valid: true, messageMailbox: ".Trash", messageTrashOrigin: "sent"}
+	handler := NewRouter(store)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/messages/1/move", strings.NewReader(`{"folder":"inbox"}`))
+	req.SetBasicAuth("marko@example.com", "secret123456")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d, body %s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+	if store.movedID != "" {
+		t.Fatalf("message was moved unexpectedly: id=%q", store.movedID)
+	}
+}
+
 func TestFoldersEndpointCreatesFolder(t *testing.T) {
 	store := &fakeStore{valid: true}
 	handler := NewRouter(store)
@@ -575,6 +609,7 @@ type fakeStore struct {
 	deletedMessageID     string
 	deletedMessageIDs    []string
 	messageMailbox       string
+	messageTrashOrigin   string
 	messageMailboxes     map[string]string
 	createdContact       Contact
 	updatedContactID     string
@@ -607,7 +642,7 @@ func (s *fakeStore) GetMessage(ctx context.Context, email, id string) (MessageDe
 	if s.messageMailboxes != nil && s.messageMailboxes[id] != "" {
 		mailbox = s.messageMailboxes[id]
 	}
-	return MessageDetail{ID: id, From: "sender@example.net", To: email, Subject: "Welcome", Body: "Full body", Mailbox: mailbox}, nil
+	return MessageDetail{ID: id, From: "sender@example.net", To: email, Subject: "Welcome", Body: "Full body", Mailbox: mailbox, TrashOrigin: s.messageTrashOrigin}, nil
 }
 
 func (s *fakeStore) SendMessage(ctx context.Context, message OutboundMessage) error {

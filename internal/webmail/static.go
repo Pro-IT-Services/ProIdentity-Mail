@@ -1183,6 +1183,11 @@ const webmailIndexHTML = `<!doctype html>
       if (source === "spam") return false;
       if (source === "sent") return target === "trash";
       if (source === "inbox") return target === "trash" || (target && !targetFolder.system);
+      if (source === "trash") {
+        const origin = String(state.dragging.trashOrigin || "").toLowerCase();
+        if (origin === "sent") return target === "sent";
+        return target === "inbox" || (target && !targetFolder.system);
+      }
       return false;
     }
     async function moveDraggedMessage(targetFolder) {
@@ -1531,17 +1536,19 @@ const webmailIndexHTML = `<!doctype html>
       document.querySelector(".pane-head h2").textContent = state.folder.charAt(0).toUpperCase() + state.folder.slice(1);
       renderFolders();
       const list = filteredMessages();
-      const draggable = state.folder === "inbox" || state.folder === "sent";
+      const draggable = state.folder === "inbox" || state.folder === "sent" || state.folder === "trash";
       document.querySelector("#messages").innerHTML = list.map((item, index) => {
         const active = state.selected && state.selected.id === item.id ? " active" : "";
         const selected = state.selectedIds.has(item.id) ? " selected" : "";
         const unread = item.unread ? " unread" : "";
-        const tag = /spam|security|dkim|spf|tls/i.test(item.subject || item.preview || "") ? "<span class=\"tag\">SECURITY</span>" : "<span class=\"tag\">MAIL</span>";
+        const origin = item.trash_origin ? "<span class=\"tag\">FROM " + esc(item.trash_origin).toUpperCase() + "</span>" : "";
+        const tag = state.folder === "trash" && origin ? origin : (/spam|security|dkim|spf|tls/i.test(item.subject || item.preview || "") ? "<span class=\"tag\">SECURITY</span>" : "<span class=\"tag\">MAIL</span>");
         return "<button class=\"message" + active + selected + unread + "\" data-id=\"" + esc(item.id) + "\" data-index=\"" + index + "\" draggable=\"" + (draggable ? "true" : "false") + "\" aria-selected=\"" + (state.selectedIds.has(item.id) ? "true" : "false") + "\"><div class=\"message-top\"><span class=\"from\">" + esc(shortFrom(item.from)) + "</span><span class=\"time\">" + esc(messageTime(item)) + "</span></div><div class=\"subject\">" + esc(item.subject || "(no subject)") + "</div><div class=\"preview\">" + esc(item.preview || "") + "</div>" + tag + "</button>";
       }).join("");
       document.querySelectorAll(".message[draggable='true']").forEach(item => {
         item.addEventListener("dragstart", event => {
-          state.dragging = {id: item.dataset.id, sourceFolder: state.folder};
+          const message = state.messages.find(row => row.id === item.dataset.id) || {};
+          state.dragging = {id: item.dataset.id, sourceFolder: state.folder, trashOrigin: message.trash_origin || ""};
           event.dataTransfer.effectAllowed = "move";
           event.dataTransfer.setData("text/plain", item.dataset.id);
           item.classList.add("dragging");

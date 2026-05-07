@@ -372,6 +372,17 @@ func (h handler) validateMove(ctx context.Context, email, id, folder string) err
 		if target == "trash" || target == "archive" || isCustomFolderTarget(folder) {
 			return nil
 		}
+	case "trash":
+		origin := strings.ToLower(strings.TrimPrefix(message.TrashOrigin, "."))
+		if origin == "sent" {
+			if target == "sent" {
+				return nil
+			}
+			return errors.New("sent trash messages can only be restored to sent")
+		}
+		if target == "inbox" || isCustomFolderTarget(folder) {
+			return nil
+		}
 	}
 	return errors.New("this move is not allowed")
 }

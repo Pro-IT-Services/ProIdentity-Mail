@@ -183,6 +183,38 @@ func TestMaildirStoreMovesMessageToSpamFolder(t *testing.T) {
 	}
 }
 
+func TestMaildirStoreAddsTrashOriginWhenMovingToTrash(t *testing.T) {
+	root := t.TempDir()
+	messageDir := filepath.Join(root, "example.com", "marko", "Maildir", ".Sent", "cur")
+	if err := os.MkdirAll(messageDir, 0750); err != nil {
+		t.Fatalf("mkdir sent: %v", err)
+	}
+	messageID := "message-1"
+	raw := "From: marko@example.com\r\nTo: sender@example.net\r\nSubject: Sent\r\n\r\nsent body"
+	if err := os.WriteFile(filepath.Join(messageDir, messageID), []byte(raw), 0640); err != nil {
+		t.Fatalf("write message: %v", err)
+	}
+
+	store := MaildirStore{Root: root}
+	if err := store.MoveMessage(context.Background(), "marko@example.com", messageID, "trash"); err != nil {
+		t.Fatalf("MoveMessage returned error: %v", err)
+	}
+	messages, err := store.ListMessages(context.Background(), "marko@example.com", "trash", 10)
+	if err != nil {
+		t.Fatalf("ListMessages returned error: %v", err)
+	}
+	if len(messages) != 1 || messages[0].TrashOrigin != "sent" {
+		t.Fatalf("trash origin = %+v, want sent", messages)
+	}
+	detail, err := store.GetMessage(context.Background(), "marko@example.com", messageID)
+	if err != nil {
+		t.Fatalf("GetMessage returned error: %v", err)
+	}
+	if detail.TrashOrigin != "sent" {
+		t.Fatalf("detail trash origin = %q, want sent", detail.TrashOrigin)
+	}
+}
+
 func TestMaildirStoreDeletesMessagePermanently(t *testing.T) {
 	root := t.TempDir()
 	messageDir := filepath.Join(root, "example.com", "marko", "Maildir", ".Trash", "new")
