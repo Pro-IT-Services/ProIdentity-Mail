@@ -263,10 +263,28 @@ func TestDeleteMessageEndpointDeletesSelectedMessage(t *testing.T) {
 	}
 }
 
-func TestMoveMessageEndpointRejectsSpamMove(t *testing.T) {
+func TestMoveMessageEndpointMovesSpamToTrash(t *testing.T) {
 	store := &fakeStore{valid: true, messageMailbox: ".Spam"}
 	handler := NewRouter(store)
 	body := `{"folder":"trash"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/messages/1/move", strings.NewReader(body))
+	req.SetBasicAuth("marko@example.com", "secret123456")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want %d, body %s", rec.Code, http.StatusAccepted, rec.Body.String())
+	}
+	if store.movedID != "1" || store.movedFolder != "trash" {
+		t.Fatalf("unexpected spam move: id=%q folder=%q", store.movedID, store.movedFolder)
+	}
+}
+
+func TestMoveMessageEndpointRejectsSpamMoveOutsideTrash(t *testing.T) {
+	store := &fakeStore{valid: true, messageMailbox: ".Spam"}
+	handler := NewRouter(store)
+	body := `{"folder":"inbox"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/messages/1/move", strings.NewReader(body))
 	req.SetBasicAuth("marko@example.com", "secret123456")
 	rec := httptest.NewRecorder()

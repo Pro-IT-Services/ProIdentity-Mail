@@ -1180,7 +1180,7 @@ const webmailIndexHTML = `<!doctype html>
       if (!state.dragging) return false;
       const source = String(state.dragging.sourceFolder || "").toLowerCase();
       const target = String(targetFolder.id || "").toLowerCase();
-      if (source === "spam") return false;
+      if (source === "spam") return target === "trash";
       if (source === "sent") return target === "trash";
       if (source === "inbox") return target === "trash" || (target && !targetFolder.system);
       if (source === "trash") {
@@ -1536,7 +1536,7 @@ const webmailIndexHTML = `<!doctype html>
       document.querySelector(".pane-head h2").textContent = state.folder.charAt(0).toUpperCase() + state.folder.slice(1);
       renderFolders();
       const list = filteredMessages();
-      const draggable = state.folder === "inbox" || state.folder === "sent" || state.folder === "trash";
+      const draggable = state.folder === "inbox" || state.folder === "sent" || state.folder === "spam" || state.folder === "trash";
       document.querySelector("#messages").innerHTML = list.map((item, index) => {
         const active = state.selected && state.selected.id === item.id ? " active" : "";
         const selected = state.selectedIds.has(item.id) ? " selected" : "";

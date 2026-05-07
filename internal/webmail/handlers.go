@@ -363,7 +363,10 @@ func (h handler) validateMove(ctx context.Context, email, id, folder string) err
 	target := strings.ToLower(strings.TrimPrefix(folder, "."))
 	switch source {
 	case "spam":
-		return errors.New("spam messages cannot be moved")
+		if target == "trash" {
+			return nil
+		}
+		return errors.New("spam messages can only be moved to trash")
 	case "sent":
 		if target == "trash" {
 			return nil
