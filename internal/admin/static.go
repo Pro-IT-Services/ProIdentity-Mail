@@ -276,6 +276,12 @@ const adminIndexHTML = `<!doctype html>
     }
     textarea { min-height: 78px; padding: 9px 10px; resize: vertical; }
     input:focus, select:focus, textarea:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(70,72,212,.12); }
+    .unit-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 92px;
+      gap: 8px;
+    }
+    .unit-row input, .unit-row select { width: 100%; }
     .full { grid-column: 1 / -1; }
     .table-wrap { overflow-x: auto; }
     table { width: 100%; border-collapse: collapse; }
@@ -722,6 +728,9 @@ const adminIndexHTML = `<!doctype html>
     function typeField(mailboxType) {
       return hiddenInput("mailbox_type", mailboxType) + "<label>Type<span class=\"context-field\">" + esc(mailboxType === "shared" ? "Shared mailbox" : "User mailbox") + "</span></label>";
     }
+    function quotaField() {
+      return "<label>Mailbox storage quota<div class=\"unit-row\"><input name=\"quota_value\" type=\"number\" min=\"1\" step=\"1\" value=\"10\"><select name=\"quota_unit\"><option value=\"gb\" selected>GB</option><option value=\"mb\">MB</option></select></div></label>";
+    }
     function tenantStep() {
       return "<div class=\"step\"><div class=\"step-title\"><strong>1. Tenant</strong>" + badge(state.tenants.length ? "ready" : "needed") + "</div><form class=\"form-grid\" data-form=\"tenant\">" +
         "<label>Name<input name=\"name\" placeholder=\"Example Company\" required></label><label>Slug<input name=\"slug\" placeholder=\"example-company\" required></label>" +
@@ -740,7 +749,7 @@ const adminIndexHTML = `<!doctype html>
     }
     function userStep(tenantID, domainID, mailboxType = "user") {
       return "<div class=\"step\"><div class=\"step-title\"><strong>4. User</strong>" + badge(state.users.length ? "ready" : "needed") + "</div><form class=\"form-grid\" data-form=\"user\">" +
-        tenantField(tenantID) + domainField(tenantID, domainID) + typeField(mailboxType) + "<label>Quota<input name=\"quota_gb\" type=\"number\" min=\"1\" step=\"1\" value=\"10\"></label>" +
+        tenantField(tenantID) + domainField(tenantID, domainID) + typeField(mailboxType) + quotaField() +
         "<label>Local part<input name=\"local_part\" placeholder=\"marko\" required></label><label>Display name<input name=\"display_name\" placeholder=\"Marko Admin\"></label>" +
         (mailboxType === "shared" ? "" : "<label class=\"full\">Password<input name=\"password\" type=\"password\" autocomplete=\"new-password\" required></label>") +
         "<button class=\"button primary full\" type=\"submit\"><span class=\"material-symbols-outlined\">person_add</span>Create " + esc(mailboxType === "shared" ? "shared mailbox" : "user") + "</button></form></div>";
@@ -792,7 +801,7 @@ const adminIndexHTML = `<!doctype html>
       if (state.userTab === "shared") {
         const body = canCreateInScope ? userStep(effectiveTenantID, domainID, "shared") : "<div class=\"scope-empty\">Select one tenant and one domain to create a shared mailbox. The table can still show shared mailboxes across the current scope.</div>";
         return "<section class=\"card\"><div class=\"panel-head\"><div><h4>Shared mailboxes for " + esc(scopeDomainLabel()) + "</h4><p>Group inboxes are created here; access is granted on the Permissions tab.</p></div>" + tenantDomainActions(true) + "</div>" + tabBar + "<div class=\"card-body\">" + body + "</div>" +
-          table(["Shared mailbox", "Domain", "Status", "Quota", "Created"], filteredSharedMailboxes().map(userRows), "No shared mailboxes in this scope.") + "</section>";
+          table(["Shared mailbox", "Domain", "Status", "Storage quota", "Created"], filteredSharedMailboxes().map(userRows), "No shared mailboxes in this scope.") + "</section>";
       }
       if (state.userTab === "permissions") {
         const body = canCreateInScope ? "<form class=\"form-grid\" data-form=\"shared-permission\">" + contextField("Tenant", tenantName(effectiveTenantID), "tenant_id", effectiveTenantID) + "<label>Shared mailbox<select name=\"shared_mailbox_id\" required>" + sharedMailboxOptions(effectiveTenantID, domainID) + "</select></label><label>User<select name=\"user_id\" required>" + normalUserOptions(effectiveTenantID, domainID) + "</select></label><label><span><input name=\"can_read\" type=\"checkbox\" checked> Read</span></label><label><span><input name=\"can_send_as\" type=\"checkbox\"> Send as</span></label><label><span><input name=\"can_send_on_behalf\" type=\"checkbox\"> Send on behalf</span></label><label><span><input name=\"can_manage\" type=\"checkbox\"> Manage</span></label><button class=\"button primary full\" type=\"submit\"><span class=\"material-symbols-outlined\">key</span>Grant permission</button></form>" : "<div class=\"scope-empty\">Select one tenant and one domain to grant new shared mailbox permissions. The table can still show permissions across the current scope.</div>";
@@ -801,7 +810,7 @@ const adminIndexHTML = `<!doctype html>
       }
       const body = canCreateInScope ? userStep(effectiveTenantID, domainID, "user") : "<div class=\"scope-empty\">Select one tenant and one domain to create a user. The table can still show users across the current scope.</div>";
       return "<section class=\"card\"><div class=\"panel-head\"><div><h4>People for " + esc(scopeDomainLabel()) + "</h4><p>Normal user mailboxes with login, quota, webmail, IMAP, SMTP, CalDAV, and CardDAV access.</p></div>" + tenantDomainActions(true) + "</div>" + tabBar + "<div class=\"card-body\">" + body + "</div>" +
-        table(["User", "Domain", "Status", "Quota", "Created"], filteredNormalUsers().map(userRows), "No users in this scope.") + "</section>";
+        table(["User", "Domain", "Status", "Storage quota", "Created"], filteredNormalUsers().map(userRows), "No users in this scope.") + "</section>";
     }
     function renderSecurity() {
       const rows = state.policies.filter(item => !state.selectedTenantId || String(item.tenant_id) === String(state.selectedTenantId));
@@ -897,7 +906,13 @@ const adminIndexHTML = `<!doctype html>
       const type = form.dataset.form;
       const data = Object.fromEntries(new FormData(form).entries());
       ["tenant_id", "primary_domain_id", "domain_id", "shared_mailbox_id", "user_id"].forEach(key => { if (data[key]) data[key] = Number(data[key]); });
-      if (data.quota_gb) {
+      if (data.quota_value) {
+        const unit = String(data.quota_unit || "gb").toLowerCase();
+        const multiplier = unit === "mb" ? 1048576 : 1073741824;
+        data.quota_bytes = Math.round(Number(data.quota_value) * multiplier);
+        delete data.quota_value;
+        delete data.quota_unit;
+      } else if (data.quota_gb) {
         data.quota_bytes = Number(data.quota_gb) * 1073741824;
         delete data.quota_gb;
       }

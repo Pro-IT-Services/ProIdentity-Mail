@@ -64,6 +64,31 @@ func TestAdminIndexIncludesGlobalShowAllScopeOptions(t *testing.T) {
 	}
 }
 
+func TestAdminIndexIncludesMailboxQuotaUnitSelector(t *testing.T) {
+	handler := NewRouter(&fakeStore{})
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	body := rec.Body.Bytes()
+	for _, want := range [][]byte{
+		[]byte("Mailbox storage quota"),
+		[]byte("Storage quota"),
+		[]byte(`name=\"quota_value\"`),
+		[]byte(`name=\"quota_unit\"`),
+		[]byte(">MB<"),
+		[]byte(">GB<"),
+	} {
+		if !bytes.Contains(body, want) {
+			t.Fatalf("index missing mailbox quota UI %q", want)
+		}
+	}
+}
+
 func TestAdminAPIRequiresAuthWhenConfigured(t *testing.T) {
 	handler := NewRouter(&fakeStore{}, AuthConfig{Username: "admin", Password: "secret"})
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/tenants", nil)
