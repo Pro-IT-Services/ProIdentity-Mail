@@ -102,13 +102,20 @@ func (s SQLStore) ListDomains(ctx context.Context) ([]domain.Domain, error) {
 }
 
 func (s SQLStore) CreateUser(ctx context.Context, user domain.User) (domain.User, error) {
-	result, err := s.db.ExecContext(ctx, `INSERT INTO users(tenant_id, primary_domain_id, local_part, display_name, password_hash, status, quota_bytes) VALUES (?, ?, ?, ?, ?, 'active', ?)`,
+	if user.MailboxType == "" {
+		user.MailboxType = "user"
+	}
+	if user.QuotaBytes == 0 {
+		user.QuotaBytes = 10737418240
+	}
+	result, err := s.db.ExecContext(ctx, `INSERT INTO users(tenant_id, primary_domain_id, local_part, display_name, mailbox_type, password_hash, status, quota_bytes) VALUES (?, ?, ?, ?, ?, ?, 'active', ?)`,
 		user.TenantID,
 		user.PrimaryDomainID,
 		user.LocalPart,
 		user.DisplayName,
+		user.MailboxType,
 		user.PasswordHash,
-		uint64(10737418240),
+		user.QuotaBytes,
 	)
 	if err != nil {
 		return domain.User{}, err
@@ -119,13 +126,12 @@ func (s SQLStore) CreateUser(ctx context.Context, user domain.User) (domain.User
 	}
 	user.ID = uint64(id)
 	user.Status = "active"
-	user.QuotaBytes = 10737418240
 	return user, nil
 }
 
 func (s SQLStore) ListUsers(ctx context.Context) ([]domain.User, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, tenant_id, primary_domain_id, local_part, display_name, status, quota_bytes, created_at, updated_at
+		SELECT id, tenant_id, primary_domain_id, local_part, display_name, mailbox_type, status, quota_bytes, created_at, updated_at
 		FROM users
 		ORDER BY created_at DESC, id DESC
 		LIMIT 500`)
@@ -137,12 +143,121 @@ func (s SQLStore) ListUsers(ctx context.Context) ([]domain.User, error) {
 	var users []domain.User
 	for rows.Next() {
 		var user domain.User
-		if err := rows.Scan(&user.ID, &user.TenantID, &user.PrimaryDomainID, &user.LocalPart, &user.DisplayName, &user.Status, &user.QuotaBytes, &user.CreatedAt, &user.UpdatedAt); err != nil {
+		if err := rows.Scan(&user.ID, &user.TenantID, &user.PrimaryDomainID, &user.LocalPart, &user.DisplayName, &user.MailboxType, &user.Status, &user.QuotaBytes, &user.CreatedAt, &user.UpdatedAt); err != nil {
 			return nil, err
 		}
 		users = append(users, user)
 	}
 	return users, rows.Err()
+}
+
+func (s SQLStore) CreateAlias(ctx context.Context, alias domain.Alias) (domain.Alias, error) {
+	result, err := s.db.ExecContext(ctx, `INSERT INTO aliases(tenant_id, domain_id, source_local_part, destination) VALUES (?, ?, ?, ?)`,
+		alias.TenantID, alias.DomainID, strings.ToLower(strings.TrimSpace(alias.SourceLocalPart)), strings.ToLower(strings.TrimSpace(alias.Destination)))
+	if err != nil {
+		return domain.Alias{}, err
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		return domain.Alias{}, err
+	}
+	alias.ID = uint64(id)
+	return alias, nil
+}
+
+func (s SQLStore) ListAliases(ctx context.Context) ([]domain.Alias, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, tenant_id, domain_id, source_local_part, destination, created_at
+		FROM aliases
+		ORDER BY created_at DESC, id DESC
+		LIMIT 500`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var aliases []domain.Alias
+	for rows.Next() {
+		var alias domain.Alias
+		if err := rows.Scan(&alias.ID, &alias.TenantID, &alias.DomainID, &alias.SourceLocalPart, &alias.Destination, &alias.CreatedAt); err != nil {
+			return nil, err
+		}
+		aliases = append(aliases, alias)
+	}
+	return aliases, rows.Err()
+}
+
+func (s SQLStore) CreateCatchAllRoute(ctx context.Context, route domain.CatchAllRoute) (domain.CatchAllRoute, error) {
+	result, err := s.db.ExecContext(ctx, `
+		INSERT INTO catch_all_routes(tenant_id, domain_id, destination, status) VALUES (?, ?, ?, 'active')
+		ON DUPLICATE KEY UPDATE destination = VALUES(destination), tenant_id = VALUES(tenant_id), status = 'active'`,
+		route.TenantID, route.DomainID, strings.ToLower(strings.TrimSpace(route.Destination)))
+	if err != nil {
+		return domain.CatchAllRoute{}, err
+	}
+	id, _ := result.LastInsertId()
+	if id > 0 {
+		route.ID = uint64(id)
+	}
+	route.Status = "active"
+	return route, nil
+}
+
+func (s SQLStore) ListCatchAllRoutes(ctx context.Context) ([]domain.CatchAllRoute, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, tenant_id, domain_id, destination, status, created_at, updated_at
+		FROM catch_all_routes
+		ORDER BY created_at DESC, id DESC
+		LIMIT 500`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var routes []domain.CatchAllRoute
+	for rows.Next() {
+		var route domain.CatchAllRoute
+		if err := rows.Scan(&route.ID, &route.TenantID, &route.DomainID, &route.Destination, &route.Status, &route.CreatedAt, &route.UpdatedAt); err != nil {
+			return nil, err
+		}
+		routes = append(routes, route)
+	}
+	return routes, rows.Err()
+}
+
+func (s SQLStore) CreateSharedMailboxPermission(ctx context.Context, permission domain.SharedMailboxPermission) (domain.SharedMailboxPermission, error) {
+	result, err := s.db.ExecContext(ctx, `
+		INSERT INTO shared_mailbox_permissions(tenant_id, shared_mailbox_id, user_id, can_read, can_send_as, can_send_on_behalf, can_manage)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+		ON DUPLICATE KEY UPDATE can_read = VALUES(can_read), can_send_as = VALUES(can_send_as), can_send_on_behalf = VALUES(can_send_on_behalf), can_manage = VALUES(can_manage)`,
+		permission.TenantID, permission.SharedMailboxID, permission.UserID, permission.CanRead, permission.CanSendAs, permission.CanSendOnBehalf, permission.CanManage)
+	if err != nil {
+		return domain.SharedMailboxPermission{}, err
+	}
+	id, _ := result.LastInsertId()
+	if id > 0 {
+		permission.ID = uint64(id)
+	}
+	return permission, nil
+}
+
+func (s SQLStore) ListSharedMailboxPermissions(ctx context.Context) ([]domain.SharedMailboxPermission, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, tenant_id, shared_mailbox_id, user_id, can_read, can_send_as, can_send_on_behalf, can_manage, created_at, updated_at
+		FROM shared_mailbox_permissions
+		ORDER BY created_at DESC, id DESC
+		LIMIT 500`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var permissions []domain.SharedMailboxPermission
+	for rows.Next() {
+		var permission domain.SharedMailboxPermission
+		if err := rows.Scan(&permission.ID, &permission.TenantID, &permission.SharedMailboxID, &permission.UserID, &permission.CanRead, &permission.CanSendAs, &permission.CanSendOnBehalf, &permission.CanManage, &permission.CreatedAt, &permission.UpdatedAt); err != nil {
+			return nil, err
+		}
+		permissions = append(permissions, permission)
+	}
+	return permissions, rows.Err()
 }
 
 func (s SQLStore) ListQuarantineEvents(ctx context.Context) ([]domain.QuarantineEvent, error) {

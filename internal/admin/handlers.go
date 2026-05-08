@@ -25,6 +25,12 @@ type Store interface {
 	ListDomains(ctx context.Context) ([]domain.Domain, error)
 	CreateUser(ctx context.Context, user domain.User) (domain.User, error)
 	ListUsers(ctx context.Context) ([]domain.User, error)
+	CreateAlias(ctx context.Context, alias domain.Alias) (domain.Alias, error)
+	ListAliases(ctx context.Context) ([]domain.Alias, error)
+	CreateCatchAllRoute(ctx context.Context, route domain.CatchAllRoute) (domain.CatchAllRoute, error)
+	ListCatchAllRoutes(ctx context.Context) ([]domain.CatchAllRoute, error)
+	CreateSharedMailboxPermission(ctx context.Context, permission domain.SharedMailboxPermission) (domain.SharedMailboxPermission, error)
+	ListSharedMailboxPermissions(ctx context.Context) ([]domain.SharedMailboxPermission, error)
 	ListQuarantineEvents(ctx context.Context) ([]domain.QuarantineEvent, error)
 	ResolveQuarantineEvent(ctx context.Context, eventID uint64, status, note string) (domain.QuarantineEvent, error)
 	ListAuditEvents(ctx context.Context) ([]domain.AuditEvent, error)
@@ -74,6 +80,12 @@ func NewRouter(store Store, authConfig ...AuthConfig) http.Handler {
 		protected.Get("/api/v1/domains/{domainID}/dns", h.getDomainDNS)
 		protected.Get("/api/v1/users", h.listUsers)
 		protected.Post("/api/v1/users", h.createUser)
+		protected.Get("/api/v1/aliases", h.listAliases)
+		protected.Post("/api/v1/aliases", h.createAlias)
+		protected.Get("/api/v1/catch-all", h.listCatchAllRoutes)
+		protected.Post("/api/v1/catch-all", h.createCatchAllRoute)
+		protected.Get("/api/v1/shared-permissions", h.listSharedMailboxPermissions)
+		protected.Post("/api/v1/shared-permissions", h.createSharedMailboxPermission)
 		protected.Get("/api/v1/quarantine", h.listQuarantineEvents)
 		protected.Post("/api/v1/quarantine/{eventID}/release", h.releaseQuarantineEvent)
 		protected.Post("/api/v1/quarantine/{eventID}/delete", h.deleteQuarantineEvent)
@@ -369,26 +381,42 @@ func (h handler) createUser(w http.ResponseWriter, r *http.Request) {
 		LocalPart       string `json:"local_part"`
 		DisplayName     string `json:"display_name"`
 		Password        string `json:"password"`
+		MailboxType     string `json:"mailbox_type"`
+		QuotaBytes      uint64 `json:"quota_bytes"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid json")
 		return
 	}
-	if req.TenantID == 0 || req.PrimaryDomainID == 0 || req.LocalPart == "" || req.Password == "" {
-		writeError(w, http.StatusBadRequest, "tenant_id, primary_domain_id, local_part, and password are required")
+	req.MailboxType = strings.TrimSpace(req.MailboxType)
+	if req.MailboxType == "" {
+		req.MailboxType = "user"
+	}
+	if req.MailboxType != "user" && req.MailboxType != "shared" {
+		writeError(w, http.StatusBadRequest, "mailbox_type must be user or shared")
 		return
 	}
-	hash, err := security.HashPassword(req.Password)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid password")
+	if req.TenantID == 0 || req.PrimaryDomainID == 0 || req.LocalPart == "" || (req.MailboxType == "user" && req.Password == "") {
+		writeError(w, http.StatusBadRequest, "tenant_id, primary_domain_id, local_part, and password are required for users")
 		return
+	}
+	var hash string
+	if req.Password != "" {
+		var err error
+		hash, err = security.HashPassword(req.Password)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid password")
+			return
+		}
 	}
 	user, err := h.store.CreateUser(r.Context(), domain.User{
 		TenantID:        req.TenantID,
 		PrimaryDomainID: req.PrimaryDomainID,
 		LocalPart:       req.LocalPart,
 		DisplayName:     req.DisplayName,
+		MailboxType:     req.MailboxType,
 		PasswordHash:    hash,
+		QuotaBytes:      req.QuotaBytes,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "create user failed")
@@ -412,6 +440,134 @@ func (h handler) listUsers(w http.ResponseWriter, r *http.Request) {
 		users[i].PasswordHash = ""
 	}
 	writeJSON(w, http.StatusOK, users)
+}
+
+func (h handler) createAlias(w http.ResponseWriter, r *http.Request) {
+	if h.store == nil {
+		writeError(w, http.StatusServiceUnavailable, "store unavailable")
+		return
+	}
+	var req struct {
+		TenantID        uint64 `json:"tenant_id"`
+		DomainID        uint64 `json:"domain_id"`
+		SourceLocalPart string `json:"source_local_part"`
+		Destination     string `json:"destination"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	if req.TenantID == 0 || req.DomainID == 0 || strings.TrimSpace(req.SourceLocalPart) == "" || strings.TrimSpace(req.Destination) == "" {
+		writeError(w, http.StatusBadRequest, "tenant_id, domain_id, source_local_part, and destination are required")
+		return
+	}
+	alias, err := h.store.CreateAlias(r.Context(), domain.Alias{TenantID: req.TenantID, DomainID: req.DomainID, SourceLocalPart: req.SourceLocalPart, Destination: req.Destination})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "create alias failed")
+		return
+	}
+	writeJSON(w, http.StatusCreated, alias)
+}
+
+func (h handler) listAliases(w http.ResponseWriter, r *http.Request) {
+	if h.store == nil {
+		writeError(w, http.StatusServiceUnavailable, "store unavailable")
+		return
+	}
+	aliases, err := h.store.ListAliases(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "list aliases failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, aliases)
+}
+
+func (h handler) createCatchAllRoute(w http.ResponseWriter, r *http.Request) {
+	if h.store == nil {
+		writeError(w, http.StatusServiceUnavailable, "store unavailable")
+		return
+	}
+	var req struct {
+		TenantID    uint64 `json:"tenant_id"`
+		DomainID    uint64 `json:"domain_id"`
+		Destination string `json:"destination"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	if req.TenantID == 0 || req.DomainID == 0 || strings.TrimSpace(req.Destination) == "" {
+		writeError(w, http.StatusBadRequest, "tenant_id, domain_id, and destination are required")
+		return
+	}
+	route, err := h.store.CreateCatchAllRoute(r.Context(), domain.CatchAllRoute{TenantID: req.TenantID, DomainID: req.DomainID, Destination: req.Destination})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "create catch-all failed")
+		return
+	}
+	writeJSON(w, http.StatusCreated, route)
+}
+
+func (h handler) listCatchAllRoutes(w http.ResponseWriter, r *http.Request) {
+	if h.store == nil {
+		writeError(w, http.StatusServiceUnavailable, "store unavailable")
+		return
+	}
+	routes, err := h.store.ListCatchAllRoutes(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "list catch-all failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, routes)
+}
+
+func (h handler) createSharedMailboxPermission(w http.ResponseWriter, r *http.Request) {
+	if h.store == nil {
+		writeError(w, http.StatusServiceUnavailable, "store unavailable")
+		return
+	}
+	var req struct {
+		TenantID        uint64 `json:"tenant_id"`
+		SharedMailboxID uint64 `json:"shared_mailbox_id"`
+		UserID          uint64 `json:"user_id"`
+		CanRead         bool   `json:"can_read"`
+		CanSendAs       bool   `json:"can_send_as"`
+		CanSendOnBehalf bool   `json:"can_send_on_behalf"`
+		CanManage       bool   `json:"can_manage"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	if req.TenantID == 0 || req.SharedMailboxID == 0 || req.UserID == 0 {
+		writeError(w, http.StatusBadRequest, "tenant_id, shared_mailbox_id, and user_id are required")
+		return
+	}
+	if !req.CanRead && !req.CanSendAs && !req.CanSendOnBehalf && !req.CanManage {
+		req.CanRead = true
+	}
+	permission, err := h.store.CreateSharedMailboxPermission(r.Context(), domain.SharedMailboxPermission{
+		TenantID: req.TenantID, SharedMailboxID: req.SharedMailboxID, UserID: req.UserID,
+		CanRead: req.CanRead, CanSendAs: req.CanSendAs, CanSendOnBehalf: req.CanSendOnBehalf, CanManage: req.CanManage,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "create shared permission failed")
+		return
+	}
+	writeJSON(w, http.StatusCreated, permission)
+}
+
+func (h handler) listSharedMailboxPermissions(w http.ResponseWriter, r *http.Request) {
+	if h.store == nil {
+		writeError(w, http.StatusServiceUnavailable, "store unavailable")
+		return
+	}
+	permissions, err := h.store.ListSharedMailboxPermissions(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "list shared permissions failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, permissions)
 }
 
 func (h handler) getDomainDNS(w http.ResponseWriter, r *http.Request) {

@@ -71,12 +71,12 @@ mysql 127.0.0.1 {
 
 passdb sql {
   default_password_scheme = BLF-CRYPT
-  query = SELECT CONCAT(u.local_part, '@', d.name) AS user, u.password_hash AS password FROM users u JOIN domains d ON d.id = u.primary_domain_id WHERE CONCAT(u.local_part, '@', d.name) = '%{user}' AND u.status = 'active' AND d.status IN ('pending','active')
+  query = SELECT CONCAT(u.local_part, '@', d.name) AS user, u.password_hash AS password FROM users u JOIN domains d ON d.id = u.primary_domain_id WHERE CONCAT(u.local_part, '@', d.name) = '%{user}' AND u.mailbox_type = 'user' AND u.status = 'active' AND d.status IN ('pending','active')
 }
 
 userdb sql {
   query = SELECT CONCAT('/var/vmail/', d.name, '/', u.local_part) AS home, 'maildir' AS mail_driver, CONCAT('/var/vmail/', d.name, '/', u.local_part, '/Maildir') AS mail_path, 5000 AS uid, 5000 AS gid FROM users u JOIN domains d ON d.id = u.primary_domain_id WHERE CONCAT(u.local_part, '@', d.name) = '%{user}' AND u.status = 'active' AND d.status IN ('pending','active')
-  iterate_query = SELECT CONCAT(u.local_part, '@', d.name) AS user FROM users u JOIN domains d ON d.id = u.primary_domain_id WHERE u.status = 'active' AND d.status IN ('pending','active')
+  iterate_query = SELECT CONCAT(u.local_part, '@', d.name) AS user FROM users u JOIN domains d ON d.id = u.primary_domain_id WHERE u.mailbox_type = 'user' AND u.status = 'active' AND d.status IN ('pending','active')
 }
 `
 

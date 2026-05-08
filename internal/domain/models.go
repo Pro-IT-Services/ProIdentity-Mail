@@ -27,6 +27,7 @@ type User struct {
 	PrimaryDomainID uint64    `json:"primary_domain_id"`
 	LocalPart       string    `json:"local_part"`
 	DisplayName     string    `json:"display_name"`
+	MailboxType     string    `json:"mailbox_type"`
 	PasswordHash    string    `json:"password_hash,omitempty"`
 	Status          string    `json:"status"`
 	QuotaBytes      uint64    `json:"quota_bytes"`
@@ -41,6 +42,29 @@ type Alias struct {
 	SourceLocalPart string    `json:"source_local_part"`
 	Destination     string    `json:"destination"`
 	CreatedAt       time.Time `json:"created_at"`
+}
+
+type CatchAllRoute struct {
+	ID          uint64    `json:"id"`
+	TenantID    uint64    `json:"tenant_id"`
+	DomainID    uint64    `json:"domain_id"`
+	Destination string    `json:"destination"`
+	Status      string    `json:"status"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+type SharedMailboxPermission struct {
+	ID              uint64    `json:"id"`
+	TenantID        uint64    `json:"tenant_id"`
+	SharedMailboxID uint64    `json:"shared_mailbox_id"`
+	UserID          uint64    `json:"user_id"`
+	CanRead         bool      `json:"can_read"`
+	CanSendAs       bool      `json:"can_send_as"`
+	CanSendOnBehalf bool      `json:"can_send_on_behalf"`
+	CanManage       bool      `json:"can_manage"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
 }
 
 type DNSRecord struct {

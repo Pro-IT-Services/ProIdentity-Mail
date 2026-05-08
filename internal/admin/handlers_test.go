@@ -177,6 +177,9 @@ func TestListEndpoints(t *testing.T) {
 		{path: "/api/v1/tenants", want: "Example Org"},
 		{path: "/api/v1/domains", want: "example.com"},
 		{path: "/api/v1/users", want: "marko"},
+		{path: "/api/v1/aliases", want: "sales"},
+		{path: "/api/v1/catch-all", want: "catchall@example.com"},
+		{path: "/api/v1/shared-permissions", want: "can_send_as"},
 		{path: "/api/v1/quarantine", want: "EICAR"},
 		{path: "/api/v1/audit", want: "message.report_spam"},
 		{path: "/api/v1/policies", want: "quarantine"},
@@ -336,12 +339,56 @@ func TestCreateUserEndpointHashesPassword(t *testing.T) {
 	if store.user.LocalPart != "marko" {
 		t.Fatalf("local part = %q", store.user.LocalPart)
 	}
+	if store.user.MailboxType != "user" || store.user.QuotaBytes != 0 {
+		t.Fatalf("unexpected user metadata: %+v", store.user)
+	}
 	var response domain.User
 	if err := json.NewDecoder(rec.Body).Decode(&response); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
 	if response.PasswordHash != "" {
 		t.Fatal("response exposed password hash")
+	}
+}
+
+func TestCreateSharedMailboxEndpointAllowsEmptyPasswordAndQuota(t *testing.T) {
+	store := &fakeStore{}
+	handler := NewRouter(store)
+	body := bytes.NewBufferString(`{"tenant_id":11,"primary_domain_id":22,"local_part":"support","display_name":"Support","mailbox_type":"shared","quota_bytes":21474836480}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users", body)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d, body %s", rec.Code, http.StatusCreated, rec.Body.String())
+	}
+	if store.user.MailboxType != "shared" || store.user.PasswordHash != "" || store.user.QuotaBytes != 21474836480 {
+		t.Fatalf("unexpected shared mailbox: %+v", store.user)
+	}
+}
+
+func TestCreateAliasCatchAllAndSharedPermissionEndpoints(t *testing.T) {
+	store := &fakeStore{}
+	handler := NewRouter(store)
+	tests := []struct {
+		path string
+		body string
+	}{
+		{"/api/v1/aliases", `{"tenant_id":11,"domain_id":22,"source_local_part":"sales","destination":"marko@example.com"}`},
+		{"/api/v1/catch-all", `{"tenant_id":11,"domain_id":22,"destination":"catchall@example.com"}`},
+		{"/api/v1/shared-permissions", `{"tenant_id":11,"shared_mailbox_id":44,"user_id":33,"can_read":true,"can_send_as":true}`},
+	}
+	for _, tt := range tests {
+		req := httptest.NewRequest(http.MethodPost, tt.path, bytes.NewBufferString(tt.body))
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("%s status = %d, want %d, body %s", tt.path, rec.Code, http.StatusCreated, rec.Body.String())
+		}
+	}
+	if store.alias.SourceLocalPart != "sales" || store.catchAll.Destination != "catchall@example.com" || !store.sharedPermission.CanSendAs {
+		t.Fatalf("unexpected stored values: alias=%+v catch=%+v permission=%+v", store.alias, store.catchAll, store.sharedPermission)
 	}
 }
 
@@ -427,6 +474,9 @@ type fakeStore struct {
 	tenant                   domain.Tenant
 	mailDomain               domain.Domain
 	user                     domain.User
+	alias                    domain.Alias
+	catchAll                 domain.CatchAllRoute
+	sharedPermission         domain.SharedMailboxPermission
 	policy                   domain.TenantPolicy
 	resolvedQuarantineID     uint64
 	resolvedQuarantineStatus string
@@ -460,11 +510,45 @@ func (s *fakeStore) CreateUser(ctx context.Context, user domain.User) (domain.Us
 	s.user = user
 	user.ID = 33
 	user.Status = "active"
+	if user.MailboxType == "" {
+		user.MailboxType = "user"
+	}
 	return user, nil
 }
 
 func (s *fakeStore) ListUsers(ctx context.Context) ([]domain.User, error) {
-	return []domain.User{{ID: 33, TenantID: 11, PrimaryDomainID: 22, LocalPart: "marko", DisplayName: "Marko", Status: "active"}}, nil
+	return []domain.User{{ID: 33, TenantID: 11, PrimaryDomainID: 22, LocalPart: "marko", DisplayName: "Marko", MailboxType: "user", Status: "active"}}, nil
+}
+
+func (s *fakeStore) CreateAlias(ctx context.Context, alias domain.Alias) (domain.Alias, error) {
+	s.alias = alias
+	alias.ID = 66
+	return alias, nil
+}
+
+func (s *fakeStore) ListAliases(ctx context.Context) ([]domain.Alias, error) {
+	return []domain.Alias{{ID: 66, TenantID: 11, DomainID: 22, SourceLocalPart: "sales", Destination: "marko@example.com"}}, nil
+}
+
+func (s *fakeStore) CreateCatchAllRoute(ctx context.Context, route domain.CatchAllRoute) (domain.CatchAllRoute, error) {
+	s.catchAll = route
+	route.ID = 77
+	route.Status = "active"
+	return route, nil
+}
+
+func (s *fakeStore) ListCatchAllRoutes(ctx context.Context) ([]domain.CatchAllRoute, error) {
+	return []domain.CatchAllRoute{{ID: 77, TenantID: 11, DomainID: 22, Destination: "catchall@example.com", Status: "active"}}, nil
+}
+
+func (s *fakeStore) CreateSharedMailboxPermission(ctx context.Context, permission domain.SharedMailboxPermission) (domain.SharedMailboxPermission, error) {
+	s.sharedPermission = permission
+	permission.ID = 88
+	return permission, nil
+}
+
+func (s *fakeStore) ListSharedMailboxPermissions(ctx context.Context) ([]domain.SharedMailboxPermission, error) {
+	return []domain.SharedMailboxPermission{{ID: 88, TenantID: 11, SharedMailboxID: 44, UserID: 33, CanRead: true, CanSendAs: true}}, nil
 }
 
 func (s *fakeStore) ListQuarantineEvents(ctx context.Context) ([]domain.QuarantineEvent, error) {

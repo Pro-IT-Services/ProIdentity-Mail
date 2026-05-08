@@ -72,6 +72,23 @@ func TestRenderPostfixMySQLMapUsesCredentials(t *testing.T) {
 	}
 }
 
+func TestRenderPostfixVirtualAliasMapIncludesCatchAllRoutes(t *testing.T) {
+	out, err := RenderPostfixVirtualAliasMaps(PostfixMySQLData{
+		Database: "maildb",
+		User:     "mailuser",
+		Password: "secret",
+	})
+	if err != nil {
+		t.Fatalf("RenderPostfixVirtualAliasMaps returned error: %v", err)
+	}
+	text := string(out)
+	for _, want := range []string{"FROM aliases", "catch_all_routes", "SUBSTRING_INDEX('%s', '@', -1)"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("rendered alias map missing %q: %s", want, text)
+		}
+	}
+}
+
 func TestRenderDovecotSQLIncludesUserDBAndFullAddress(t *testing.T) {
 	out, err := RenderDovecotSQL(DovecotSQLData{
 		Database: "maildb",
@@ -86,6 +103,7 @@ func TestRenderDovecotSQLIncludesUserDBAndFullAddress(t *testing.T) {
 		"sql_driver = mysql",
 		"default_password_scheme = BLF-CRYPT",
 		"CONCAT(u.local_part, '@', d.name) AS user",
+		"u.mailbox_type = 'user'",
 		"mail_driver",
 		"mail_path",
 		"5000 AS uid",

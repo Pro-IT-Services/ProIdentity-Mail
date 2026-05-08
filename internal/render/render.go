@@ -118,7 +118,7 @@ func RenderPostfixVirtualMailboxMaps(data PostfixMySQLData) ([]byte, error) {
 }
 
 func RenderPostfixVirtualAliasMaps(data PostfixMySQLData) ([]byte, error) {
-	return renderPostfixMySQL(data, "SELECT destination FROM aliases a JOIN domains d ON d.id = a.domain_id WHERE CONCAT(a.source_local_part, '@', d.name)='%s'")
+	return renderPostfixMySQL(data, "SELECT destination FROM aliases a JOIN domains d ON d.id = a.domain_id WHERE CONCAT(a.source_local_part, '@', d.name)='%s' UNION SELECT c.destination FROM catch_all_routes c JOIN domains d ON d.id = c.domain_id WHERE d.name = SUBSTRING_INDEX('%s', '@', -1) AND c.status='active'")
 }
 
 func RenderDovecotSQL(data DovecotSQLData) ([]byte, error) {

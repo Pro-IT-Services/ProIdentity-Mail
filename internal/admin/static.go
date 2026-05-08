@@ -323,7 +323,7 @@ const adminIndexHTML = `<!doctype html>
         <div><h1>ProIdentity</h1><p>MAIL ADMIN</p></div>
       </div>
       <h2>Admin login</h2>
-      <p>Use the server admin account to manage tenants, domains, mailboxes, security policy, and quarantine.</p>
+      <p>Use the server admin account to manage tenants, domains, users, shared mailboxes, security policy, and quarantine.</p>
       <div class="form-grid single">
         <label>Username<input name="username" autocomplete="username" required></label>
         <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
@@ -361,7 +361,7 @@ const adminIndexHTML = `<!doctype html>
       <section class="hero">
         <div>
           <h3 id="hero-title">Mail platform control center</h3>
-          <p id="hero-text">Start with onboarding, then manage tenants, domains, mailboxes, DNS, security, quarantine, and audit activity.</p>
+          <p id="hero-text">Start with onboarding, then manage tenants, domains, users, DNS, security, quarantine, and audit activity.</p>
         </div>
         <div class="actions">
           <button class="button primary" id="start-onboarding"><span class="material-symbols-outlined">rocket_launch</span>Start setup</button>
@@ -375,17 +375,17 @@ const adminIndexHTML = `<!doctype html>
   <script>
     const views = [
       ["dashboard", "Dashboard", "Operational overview", "space_dashboard"],
-      ["onboarding", "Onboarding", "Tenant to mailbox setup", "fact_check"],
+      ["onboarding", "Onboarding", "Tenant to first user setup", "fact_check"],
       ["tenants", "Tenants", "Organizations and customer boundaries", "apartment"],
       ["domains", "Domains", "Hosted mail domains and DNS records", "dns"],
-      ["mailboxes", "Mailboxes", "Users and mailbox accounts", "mail"],
+      ["users", "Users", "Users, shared mailboxes, aliases, catch-all, and permissions", "group"],
       ["security", "Security", "Tenant spam, malware, and TLS policy", "shield_lock"],
       ["quarantine", "Quarantine", "Held spam and malware messages", "gpp_maybe"],
       ["audit", "Audit", "Admin and security activity", "receipt_long"],
       ["system", "System", "Service health and integration endpoints", "settings"]
     ];
     const state = {
-      tenants: [], domains: [], users: [], quarantine: [], audit: [], policies: [],
+      tenants: [], domains: [], users: [], aliases: [], catchAll: [], sharedPermissions: [], quarantine: [], audit: [], policies: [],
       view: "dashboard", selectedTenantId: "", selectedDomainId: "", dns: null, csrf: "", query: "", health: "checking"
     };
 
@@ -395,7 +395,8 @@ const adminIndexHTML = `<!doctype html>
     const byID = (items, id) => items.find(item => String(item.id) === String(id));
     const tenantName = id => byID(state.tenants, id)?.name || ("Tenant " + (id || "-"));
     const domainName = id => byID(state.domains, id)?.name || ("Domain " + (id || "-"));
-    const emailFor = user => esc(user.local_part || "") + "@" + esc(domainName(user.primary_domain_id));
+    const emailAddress = user => (user.local_part || "") + "@" + domainName(user.primary_domain_id);
+    const emailFor = user => esc(emailAddress(user));
     const initials = value => String(value || "?").split(/[\s.-]+/).filter(Boolean).slice(0,2).map(part => part[0].toUpperCase()).join("") || "?";
     const selected = (a, b) => String(a) === String(b) ? "selected" : "";
     const checked = value => value ? "checked" : "";
@@ -404,6 +405,14 @@ const adminIndexHTML = `<!doctype html>
       if (!q) return items;
       return items.filter(item => JSON.stringify(item).toLowerCase().includes(q));
     };
+    const selectedTenantDomains = () => state.domains.filter(item => !state.selectedTenantId || String(item.tenant_id) === String(state.selectedTenantId));
+    const filteredUsers = () => visible(state.users.filter(item =>
+      (!state.selectedTenantId || String(item.tenant_id) === String(state.selectedTenantId)) &&
+      (!state.selectedDomainId || String(item.primary_domain_id) === String(state.selectedDomainId))
+    ));
+    const usersInTenant = () => state.users.filter(item => !state.selectedTenantId || String(item.tenant_id) === String(state.selectedTenantId));
+    const sharedMailboxes = () => usersInTenant().filter(item => (item.mailbox_type || "user") === "shared");
+    const normalUsers = () => usersInTenant().filter(item => (item.mailbox_type || "user") === "user");
     function badge(value) {
       const text = String(value || "unknown");
       const low = text.toLowerCase();
@@ -439,18 +448,23 @@ const adminIndexHTML = `<!doctype html>
       await refresh();
     }
     async function refresh() {
-      const [tenants, domains, users, quarantine, audit, policies] = await Promise.all([
+      const [tenants, domains, users, aliases, catchAll, sharedPermissions, quarantine, audit, policies] = await Promise.all([
         api("/api/v1/tenants"), api("/api/v1/domains"), api("/api/v1/users"),
+        api("/api/v1/aliases"), api("/api/v1/catch-all"), api("/api/v1/shared-permissions"),
         api("/api/v1/quarantine"), api("/api/v1/audit"), api("/api/v1/policies")
       ]);
       state.tenants = tenants || [];
       state.domains = domains || [];
       state.users = users || [];
+      state.aliases = aliases || [];
+      state.catchAll = catchAll || [];
+      state.sharedPermissions = sharedPermissions || [];
       state.quarantine = quarantine || [];
       state.audit = audit || [];
       state.policies = policies || [];
       if (!state.selectedTenantId && state.tenants[0]) state.selectedTenantId = String(state.tenants[0].id);
       if (!state.selectedDomainId && state.domains[0]) state.selectedDomainId = String(state.domains[0].id);
+      if ((!state.tenants.length || !state.domains.length || !state.users.length) && state.view === "dashboard") state.view = "onboarding";
       render();
       checkHealth();
     }
@@ -481,7 +495,7 @@ const adminIndexHTML = `<!doctype html>
       $("#page-subtitle").textContent = meta[2];
       $("#hero-title").textContent = meta[1] === "Dashboard" ? "Mail platform control center" : meta[1];
       $("#hero-text").textContent = meta[2];
-      const map = {dashboard: renderDashboard, onboarding: renderOnboarding, tenants: renderTenants, domains: renderDomains, mailboxes: renderMailboxes, security: renderSecurity, quarantine: renderQuarantine, audit: renderAudit, system: renderSystem};
+      const map = {dashboard: renderDashboard, onboarding: renderOnboarding, tenants: renderTenants, domains: renderDomains, users: renderUsers, security: renderSecurity, quarantine: renderQuarantine, audit: renderAudit, system: renderSystem};
       $("#view").innerHTML = (map[state.view] || renderDashboard)();
     }
     function stat(label, value, icon, cls) {
@@ -493,12 +507,12 @@ const adminIndexHTML = `<!doctype html>
         ["Create tenant", state.tenants.length > 0],
         ["Add hosted domain", state.domains.length > 0],
         ["Review DNS records", !!state.dns],
-        ["Create first mailbox", state.users.length > 0],
+        ["Create first user", state.users.length > 0],
         ["Confirm security policy", state.policies.length > 0]
       ];
       return "<div class=\"grid stats\">" +
         stat("Tenants", state.tenants.length, "apartment") + stat("Domains", state.domains.length, "dns") +
-        stat("Mailboxes", state.users.length, "mail") + stat("Held messages", held, "gpp_maybe") +
+        stat("Users", state.users.length, "group") + stat("Held messages", held, "gpp_maybe") +
         "</div><div class=\"grid two-col\"><section class=\"card\"><div class=\"panel-head\"><div><h4>Setup path</h4><p>The normal production order for a new customer or site.</p></div><button class=\"button primary\" data-view=\"onboarding\"><span class=\"material-symbols-outlined\">arrow_forward</span>Open onboarding</button></div><div class=\"card-body step-list\">" +
         tasks.map(task => "<div class=\"step-title\"><span>" + esc(task[0]) + "</span>" + badge(task[1] ? "ready" : "needed") + "</div>").join("") +
         "</div></section><section class=\"card\"><div class=\"panel-head\"><div><h4>Recent audit</h4><p>Latest admin/security actions.</p></div><button class=\"button\" data-view=\"audit\"><span class=\"material-symbols-outlined\">receipt_long</span>View audit</button></div><div class=\"table-wrap\"><table><tbody>" +
@@ -509,12 +523,12 @@ const adminIndexHTML = `<!doctype html>
       const selectedTenant = state.selectedTenantId || (state.tenants[0] && String(state.tenants[0].id)) || "";
       const domains = state.domains.filter(d => !selectedTenant || String(d.tenant_id) === String(selectedTenant));
       const selectedDomain = state.selectedDomainId || (domains[0] && String(domains[0].id)) || "";
-      return "<div class=\"grid two-col\"><section class=\"card\"><div class=\"panel-head\"><div><h4>Guided setup</h4><p>Create in the order mail actually needs: tenant, domain, DNS, mailbox.</p></div></div><div class=\"card-body step-list\">" +
-        tenantStep() + domainStep(selectedTenant) + dnsStep(selectedDomain) + mailboxStep(selectedTenant, selectedDomain) +
-        "</div></section><section class=\"card\"><div class=\"panel-head\"><div><h4>Current selection</h4><p>These selections drive domain and mailbox forms.</p></div></div><div class=\"card-body form-grid single\">" +
+      return "<div class=\"grid two-col\"><section class=\"card\"><div class=\"panel-head\"><div><h4>Guided setup</h4><p>Create in the order mail actually needs: tenant, domain, DNS, user.</p></div></div><div class=\"card-body step-list\">" +
+        tenantStep() + domainStep(selectedTenant) + dnsStep(selectedDomain) + userStep(selectedTenant, selectedDomain) +
+        "</div></section><section class=\"card\"><div class=\"panel-head\"><div><h4>Current selection</h4><p>These selections drive domain and user forms.</p></div></div><div class=\"card-body form-grid single\">" +
         "<label>Tenant<select id=\"selected-tenant\">" + tenantOptions(selectedTenant) + "</select></label>" +
         "<label>Domain<select id=\"selected-domain\">" + domainOptions(selectedTenant, selectedDomain) + "</select></label>" +
-        "<div class=\"step\"><strong>" + esc(tenantName(selectedTenant)) + "</strong><span class=\"muted\">" + esc(domainName(selectedDomain)) + "</span><span class=\"muted small\">" + state.users.filter(u => String(u.tenant_id) === String(selectedTenant)).length + " mailboxes in this tenant</span></div>" +
+        "<div class=\"step\"><strong>" + esc(tenantName(selectedTenant)) + "</strong><span class=\"muted\">" + esc(domainName(selectedDomain)) + "</span><span class=\"muted small\">" + state.users.filter(u => String(u.tenant_id) === String(selectedTenant)).length + " users/shared mailboxes in this tenant</span></div>" +
         "</div></section></div>";
     }
     function tenantStep() {
@@ -533,12 +547,13 @@ const adminIndexHTML = `<!doctype html>
         "<div class=\"actions\"><select id=\"dns-domain\">" + domainOptions(state.selectedTenantId, domainID) + "</select><button class=\"button\" data-load-dns=\"selected\"><span class=\"material-symbols-outlined\">dns</span>Load DNS</button></div>" +
         "<div class=\"record-grid\">" + renderDNSRecords(records) + "</div></div>";
     }
-    function mailboxStep(tenantID, domainID) {
-      return "<div class=\"step\"><div class=\"step-title\"><strong>4. Mailbox</strong>" + badge(state.users.length ? "ready" : "needed") + "</div><form class=\"form-grid\" data-form=\"user\">" +
+    function userStep(tenantID, domainID) {
+      return "<div class=\"step\"><div class=\"step-title\"><strong>4. User</strong>" + badge(state.users.length ? "ready" : "needed") + "</div><form class=\"form-grid\" data-form=\"user\">" +
         "<label>Tenant<select name=\"tenant_id\" required>" + tenantOptions(tenantID) + "</select></label><label>Domain<select name=\"primary_domain_id\" required>" + domainOptions(tenantID, domainID) + "</select></label>" +
+        "<label>Type<select name=\"mailbox_type\"><option value=\"user\">User mailbox</option><option value=\"shared\">Shared mailbox</option></select></label><label>Quota<input name=\"quota_gb\" type=\"number\" min=\"1\" step=\"1\" value=\"10\"></label>" +
         "<label>Local part<input name=\"local_part\" placeholder=\"marko\" required></label><label>Display name<input name=\"display_name\" placeholder=\"Marko Admin\"></label>" +
-        "<label class=\"full\">Password<input name=\"password\" type=\"password\" autocomplete=\"new-password\" required></label>" +
-        "<button class=\"button primary full\" type=\"submit\"><span class=\"material-symbols-outlined\">person_add</span>Create mailbox</button></form></div>";
+        "<label class=\"full\">Password<input name=\"password\" type=\"password\" autocomplete=\"new-password\" placeholder=\"Required for normal users; leave empty for shared mailbox\"></label>" +
+        "<button class=\"button primary full\" type=\"submit\"><span class=\"material-symbols-outlined\">person_add</span>Create user</button></form></div>";
     }
     function renderTenants() {
       return "<div class=\"grid two-col\"><section class=\"card\"><div class=\"panel-head\"><div><h4>Tenants</h4><p>Each tenant is an isolated organization boundary.</p></div><button class=\"button\" data-view=\"onboarding\"><span class=\"material-symbols-outlined\">add</span>Guided create</button></div>" +
@@ -552,10 +567,17 @@ const adminIndexHTML = `<!doctype html>
         table(["Domain", "Tenant", "Status", "DKIM", "Actions"], visible(state.domains).map(item => "<tr><td><strong>" + esc(item.name) + "</strong><div class=\"muted small\">ID " + esc(item.id) + "</div></td><td>" + esc(tenantName(item.tenant_id)) + "</td><td>" + badge(item.status) + "</td><td><code>" + esc(item.dkim_selector || "mail") + "</code></td><td><div class=\"actions\"><button class=\"button\" data-select-domain=\"" + esc(item.id) + "\"><span class=\"material-symbols-outlined\">check_circle</span>Select</button><button class=\"button\" data-load-dns=\"" + esc(item.id) + "\"><span class=\"material-symbols-outlined\">dns</span>DNS</button></div></td></tr>"), "No domains match this view.") +
         "</section><section class=\"card\"><div class=\"panel-head\"><div><h4>Add domain</h4><p>Choose a tenant first; no raw IDs needed.</p></div></div><div class=\"card-body\">" + domainStep(state.selectedTenantId) + "</div><div class=\"panel-head\"><div><h4>" + esc(dnsTitle) + "</h4><p>Publish these records with your DNS provider.</p></div></div><div class=\"card-body record-grid\">" + renderDNSRecords(dnsRecords) + "</div></section></div>";
     }
-    function renderMailboxes() {
-      return "<div class=\"grid two-col\"><section class=\"card\"><div class=\"panel-head\"><div><h4>Mailboxes</h4><p>User accounts for webmail, IMAP, POP3, SMTP auth, CalDAV, and CardDAV.</p></div></div>" +
-        table(["Mailbox", "Tenant", "Status", "Quota", "Created"], visible(state.users).map(item => "<tr><td><div class=\"identity\"><span class=\"initials\">" + esc(initials(item.display_name || item.local_part)) + "</span><div><strong>" + emailFor(item) + "</strong><div class=\"muted small\">" + esc(item.display_name || "-") + "</div></div></div></td><td>" + esc(tenantName(item.tenant_id)) + "</td><td>" + badge(item.status) + "</td><td>" + esc(formatBytes(item.quota_bytes)) + "</td><td>" + esc(dateText(item.created_at)) + "</td></tr>"), "No mailboxes match this view.") +
-        "</section><section class=\"card\"><div class=\"panel-head\"><div><h4>Create mailbox</h4><p>Creates the account used by webmail and mail protocols.</p></div></div><div class=\"card-body\">" + mailboxStep(state.selectedTenantId, state.selectedDomainId) + "</div></section></div>";
+    function renderUsers() {
+      const aliasRows = state.aliases.filter(item => !state.selectedTenantId || String(item.tenant_id) === String(state.selectedTenantId));
+      const catchRows = state.catchAll.filter(item => !state.selectedTenantId || String(item.tenant_id) === String(state.selectedTenantId));
+      const permissionRows = state.sharedPermissions.filter(item => !state.selectedTenantId || String(item.tenant_id) === String(state.selectedTenantId));
+      return "<div class=\"grid\"><section class=\"card\"><div class=\"panel-head\"><div><h4>Users</h4><p>Normal users, shared mailboxes, quota, and domain filtering.</p></div><div class=\"actions\"><select id=\"selected-tenant\">" + tenantOptions(state.selectedTenantId) + "</select><select id=\"selected-domain\"><option value=\"\">All domains</option>" + domainOptions(state.selectedTenantId, state.selectedDomainId) + "</select></div></div>" +
+        table(["User", "Type", "Domain", "Status", "Quota", "Created"], filteredUsers().map(item => "<tr><td><div class=\"identity\"><span class=\"initials\">" + esc(initials(item.display_name || item.local_part)) + "</span><div><strong>" + emailFor(item) + "</strong><div class=\"muted small\">" + esc(item.display_name || "-") + "</div></div></div></td><td>" + badge(item.mailbox_type || "user") + "</td><td>" + esc(domainName(item.primary_domain_id)) + "</td><td>" + badge(item.status) + "</td><td>" + esc(formatBytes(item.quota_bytes)) + "</td><td>" + esc(dateText(item.created_at)) + "</td></tr>"), "No users match this filter.") +
+        "</section><div class=\"grid two-col\"><section class=\"card\"><div class=\"panel-head\"><div><h4>Create user or shared mailbox</h4><p>Shared mailboxes receive mail but direct login is disabled.</p></div></div><div class=\"card-body\">" + userStep(state.selectedTenantId, state.selectedDomainId) + "</div></section>" +
+        "<section class=\"card\"><div class=\"panel-head\"><div><h4>Alias</h4><p>Alias domains can be different when they belong to the same tenant.</p></div></div><div class=\"card-body\"><form class=\"form-grid\" data-form=\"alias\"><label>Tenant<select name=\"tenant_id\" required>" + tenantOptions(state.selectedTenantId) + "</select></label><label>Alias domain<select name=\"domain_id\" required>" + domainOptions(state.selectedTenantId, state.selectedDomainId) + "</select></label><label>Alias local part<input name=\"source_local_part\" placeholder=\"sales\" required></label><label>Destination<select name=\"destination\" required>" + userEmailOptions(state.selectedTenantId) + "</select></label><button class=\"button primary full\" type=\"submit\"><span class=\"material-symbols-outlined\">alternate_email</span>Create alias</button></form></div></section></div>" +
+        "<div class=\"grid two-col\"><section class=\"card\"><div class=\"panel-head\"><div><h4>Catch-all</h4><p>Route unknown recipients for a domain to one mailbox.</p></div></div><div class=\"card-body\"><form class=\"form-grid\" data-form=\"catch-all\"><label>Tenant<select name=\"tenant_id\" required>" + tenantOptions(state.selectedTenantId) + "</select></label><label>Domain<select name=\"domain_id\" required>" + domainOptions(state.selectedTenantId, state.selectedDomainId) + "</select></label><label class=\"full\">Destination<select name=\"destination\" required>" + userEmailOptions(state.selectedTenantId) + "</select></label><button class=\"button primary full\" type=\"submit\"><span class=\"material-symbols-outlined\">all_inbox</span>Set catch-all</button></form></div>" + table(["Domain", "Destination", "Status"], catchRows.map(item => "<tr><td>" + esc(domainName(item.domain_id)) + "</td><td>" + esc(item.destination) + "</td><td>" + badge(item.status) + "</td></tr>"), "No catch-all routes.") + "</section>" +
+        "<section class=\"card\"><div class=\"panel-head\"><div><h4>Shared mailbox permissions</h4><p>Grant read, send as, send on behalf, and manage rights.</p></div></div><div class=\"card-body\"><form class=\"form-grid\" data-form=\"shared-permission\"><label>Tenant<select name=\"tenant_id\" required>" + tenantOptions(state.selectedTenantId) + "</select></label><label>Shared mailbox<select name=\"shared_mailbox_id\" required>" + sharedMailboxOptions(state.selectedTenantId) + "</select></label><label>User<select name=\"user_id\" required>" + normalUserOptions(state.selectedTenantId) + "</select></label><label><span><input name=\"can_read\" type=\"checkbox\" checked> Read</span></label><label><span><input name=\"can_send_as\" type=\"checkbox\"> Send as</span></label><label><span><input name=\"can_send_on_behalf\" type=\"checkbox\"> Send on behalf</span></label><label><span><input name=\"can_manage\" type=\"checkbox\"> Manage</span></label><button class=\"button primary full\" type=\"submit\"><span class=\"material-symbols-outlined\">key</span>Grant permission</button></form></div>" + table(["Shared", "User", "Rights"], permissionRows.map(item => "<tr><td>" + esc(userLabel(item.shared_mailbox_id)) + "</td><td>" + esc(userLabel(item.user_id)) + "</td><td>" + esc(permissionText(item)) + "</td></tr>"), "No shared permissions.") + "</section></div>" +
+        "<section class=\"card\"><div class=\"panel-head\"><div><h4>Aliases</h4><p>Alternate addresses for users and shared mailboxes.</p></div></div>" + table(["Alias", "Destination", "Tenant", "Created"], aliasRows.map(item => "<tr><td><strong>" + esc(item.source_local_part + "@" + domainName(item.domain_id)) + "</strong></td><td>" + esc(item.destination) + "</td><td>" + esc(tenantName(item.tenant_id)) + "</td><td>" + esc(dateText(item.created_at)) + "</td></tr>"), "No aliases.") + "</section></div>";
     }
     function renderSecurity() {
       return "<section class=\"card\"><div class=\"panel-head\"><div><h4>Security policy</h4><p>Spam action, malware action, and TLS requirements per tenant.</p></div><button class=\"button\" data-refresh><span class=\"material-symbols-outlined\">refresh</span>Refresh</button></div>" +
@@ -591,6 +613,33 @@ const adminIndexHTML = `<!doctype html>
       const rows = domains.map(item => "<option value=\"" + esc(item.id) + "\" " + selected(item.id, current) + ">" + esc(item.name) + "</option>");
       return rows.length ? rows.join("") : "<option value=\"\">Create a domain first</option>";
     }
+    function userEmailOptions(tenantID) {
+      const rows = state.users.filter(item => !tenantID || String(item.tenant_id) === String(tenantID)).map(item => {
+        const email = emailAddress(item);
+        return "<option value=\"" + esc(email) + "\">" + esc(email) + " (" + esc(item.mailbox_type || "user") + ")</option>";
+      });
+      return rows.length ? rows.join("") : "<option value=\"\">Create a user first</option>";
+    }
+    function normalUserOptions(tenantID) {
+      const rows = normalUsers().filter(item => !tenantID || String(item.tenant_id) === String(tenantID)).map(item => "<option value=\"" + esc(item.id) + "\">" + emailFor(item) + "</option>");
+      return rows.length ? rows.join("") : "<option value=\"\">Create a user first</option>";
+    }
+    function sharedMailboxOptions(tenantID) {
+      const rows = sharedMailboxes().filter(item => !tenantID || String(item.tenant_id) === String(tenantID)).map(item => "<option value=\"" + esc(item.id) + "\">" + emailFor(item) + "</option>");
+      return rows.length ? rows.join("") : "<option value=\"\">Create a shared mailbox first</option>";
+    }
+    function userLabel(id) {
+      const user = byID(state.users, id);
+      return user ? emailAddress(user) : "User " + id;
+    }
+    function permissionText(item) {
+      const rights = [];
+      if (item.can_read) rights.push("read");
+      if (item.can_send_as) rights.push("send as");
+      if (item.can_send_on_behalf) rights.push("send on behalf");
+      if (item.can_manage) rights.push("manage");
+      return rights.join(", ") || "none";
+    }
     function renderDNSRecords(records) {
       if (!records || !records.length) return "<div class=\"muted small\">Load records after selecting a domain. The backend generates MX, SPF, DKIM, DMARC, MTA-STS, and TLS reporting values where available.</div>";
       return records.map(record => "<div class=\"dns-record\"><strong>" + esc(record.type) + "</strong><code>" + esc(record.name) + "</code><code>" + esc(record.priority ? record.priority + " " : "") + esc(record.value) + "</code></div>").join("");
@@ -618,15 +667,20 @@ const adminIndexHTML = `<!doctype html>
     async function submitForm(form) {
       const type = form.dataset.form;
       const data = Object.fromEntries(new FormData(form).entries());
-      ["tenant_id", "primary_domain_id"].forEach(key => { if (data[key]) data[key] = Number(data[key]); });
-      const path = type === "tenant" ? "/api/v1/tenants" : type === "domain" ? "/api/v1/domains" : "/api/v1/users";
+      ["tenant_id", "primary_domain_id", "domain_id", "shared_mailbox_id", "user_id"].forEach(key => { if (data[key]) data[key] = Number(data[key]); });
+      if (data.quota_gb) {
+        data.quota_bytes = Number(data.quota_gb) * 1073741824;
+        delete data.quota_gb;
+      }
+      ["can_read", "can_send_as", "can_send_on_behalf", "can_manage"].forEach(key => data[key] = data[key] === "on");
+      const path = type === "tenant" ? "/api/v1/tenants" : type === "domain" ? "/api/v1/domains" : type === "alias" ? "/api/v1/aliases" : type === "catch-all" ? "/api/v1/catch-all" : type === "shared-permission" ? "/api/v1/shared-permissions" : "/api/v1/users";
       const created = await api(path, {method: "POST", body: JSON.stringify(data)});
       if (type === "tenant") state.selectedTenantId = String(created.id);
       if (type === "domain") state.selectedDomainId = String(created.id);
       if (type === "user") state.selectedTenantId = String(created.tenant_id);
       form.reset();
       await refresh();
-      showStatus((type === "user" ? "Mailbox" : type[0].toUpperCase() + type.slice(1)) + " created");
+      showStatus((type === "user" ? "User" : type === "catch-all" ? "Catch-all" : type === "shared-permission" ? "Shared permission" : type[0].toUpperCase() + type.slice(1)) + " created");
     }
     async function loadDNS(id) {
       const selectedID = id === "selected" ? ($("#dns-domain")?.value || state.selectedDomainId) : id;
