@@ -498,6 +498,8 @@ const adminIndexHTML = `<!doctype html>
     const selectedTenantDomains = () => domainsForTenant();
     const selectedTenant = () => byID(state.tenants, state.selectedTenantId);
     const selectedDomain = () => byID(state.domains, state.selectedDomainId);
+    const setupIncomplete = () => !state.tenants.length || !state.domains.length || !state.users.length;
+    const activeViews = () => setupIncomplete() ? views : views.filter(item => item[0] !== "onboarding");
     const scopedUsers = () => state.users.filter(item =>
       state.selectedTenantId && String(item.tenant_id) === String(state.selectedTenantId) &&
       state.selectedDomainId && String(item.primary_domain_id) === String(state.selectedDomainId)
@@ -587,7 +589,8 @@ const adminIndexHTML = `<!doctype html>
       state.audit = audit || [];
       state.policies = policies || [];
       syncScope();
-      if ((!state.tenants.length || !state.domains.length || !state.users.length) && state.view === "dashboard") state.view = "onboarding";
+      if (setupIncomplete() && state.view === "dashboard") state.view = "onboarding";
+      if (!setupIncomplete() && state.view === "onboarding") state.view = "dashboard";
       render();
       checkHealth();
     }
@@ -601,13 +604,13 @@ const adminIndexHTML = `<!doctype html>
       $("#health-pill").innerHTML = "<span class=\"material-symbols-outlined\">monitor_heart</span><span>" + esc(state.health) + "</span>";
     }
     function setView(view) {
-      state.view = view;
+      state.view = view === "onboarding" && !setupIncomplete() ? "dashboard" : view;
       state.query = "";
       $("#search").value = "";
       render();
     }
     function renderNav() {
-      $("#nav").innerHTML = views.map(([id, label, , icon]) =>
+      $("#nav").innerHTML = activeViews().map(([id, label, , icon]) =>
         "<button class=\"nav-item " + (state.view === id ? "active" : "") + "\" data-view=\"" + id + "\"><span class=\"material-symbols-outlined\">" + icon + "</span><span>" + label + "</span></button>"
       ).join("");
     }
@@ -644,6 +647,7 @@ const adminIndexHTML = `<!doctype html>
     }
     function render() {
       syncScope();
+      if (!activeViews().some(item => item[0] === state.view)) state.view = setupIncomplete() ? "onboarding" : "dashboard";
       renderNav();
       renderScopeBar();
       const meta = views.find(item => item[0] === state.view) || views[0];
@@ -651,6 +655,7 @@ const adminIndexHTML = `<!doctype html>
       $("#page-subtitle").textContent = meta[2];
       $("#hero-title").textContent = meta[1] === "Dashboard" ? "Mail platform control center" : meta[1];
       $("#hero-text").textContent = meta[2];
+      $("#start-onboarding").classList.toggle("hidden", !setupIncomplete());
       const map = {dashboard: renderDashboard, onboarding: renderOnboarding, tenants: renderTenants, domains: renderDomains, users: renderUsers, security: renderSecurity, quarantine: renderQuarantine, audit: renderAudit, system: renderSystem};
       $("#view").innerHTML = (map[state.view] || renderDashboard)();
     }
@@ -663,7 +668,7 @@ const adminIndexHTML = `<!doctype html>
       const held = state.quarantine.filter(item => (!tenantID || String(item.tenant_id) === String(tenantID)) && (!item.status || item.status === "held")).length;
       const domainCount = domainsForTenant(tenantID).length;
       const userCount = domainID ? scopedUsers().length : state.users.filter(item => tenantID && String(item.tenant_id) === String(tenantID)).length;
-      const incomplete = !state.tenants.length || !state.domains.length || !state.users.length;
+      const incomplete = setupIncomplete();
       const tasks = [
         ["Create tenant", state.tenants.length > 0],
         ["Add hosted domain", state.domains.length > 0],
@@ -671,6 +676,10 @@ const adminIndexHTML = `<!doctype html>
         ["Create first user", state.users.length > 0],
         ["Confirm security policy", state.policies.length > 0]
       ];
+      const scopeCard = incomplete ? "<section class=\"card\"><div class=\"panel-head\"><div><h4>Setup path</h4><p>The normal production order for the first customer or site.</p></div><button class=\"button primary\" data-view=\"onboarding\"><span class=\"material-symbols-outlined\">arrow_forward</span>Open onboarding</button></div><div class=\"card-body step-list\">" +
+        tasks.map(task => "<div class=\"step-title\"><span>" + esc(task[0]) + "</span>" + badge(task[1] ? "ready" : "needed") + "</div>").join("") +
+        "</div></section>" : "<section class=\"card\"><div class=\"panel-head\"><div><h4>Current scope</h4><p>Work inside the tenant and domain selected above.</p></div><button class=\"button\" data-view=\"domains\"><span class=\"material-symbols-outlined\">dns</span>Open domain</button></div><div class=\"card-body step-list\">" +
+        "<div class=\"step-title\"><span>Tenant</span><strong>" + esc(tenantName(tenantID)) + "</strong></div><div class=\"step-title\"><span>Domain</span><strong>" + esc(domainName(domainID)) + "</strong></div><div class=\"step-title\"><span>Users in domain</span>" + badge(userCount) + "</div></div></section>";
       return (incomplete ? "<section class=\"card\" style=\"margin-bottom:16px\"><div class=\"panel-head\"><div><h4>Setup needs attention</h4><p>Create the first tenant, domain, and user before using advanced mail routing.</p></div><button class=\"button primary\" data-view=\"onboarding\"><span class=\"material-symbols-outlined\">rocket_launch</span>Continue setup</button></div></section>" : "") +
         "<div class=\"grid stats\">" +
         stat("Tenants", state.tenants.length, "apartment") + stat("Domains", domainCount, "dns") +
@@ -679,9 +688,7 @@ const adminIndexHTML = `<!doctype html>
         "<button class=\"quick-action\" data-view=\"users\" data-set-user-tab=\"people\"><strong><span class=\"material-symbols-outlined\">person_add</span>Create user</strong><span class=\"muted small\">Normal mailbox with quota and login.</span></button>" +
         "<button class=\"quick-action\" data-view=\"domains\" data-set-domain-tab=\"aliases\"><strong><span class=\"material-symbols-outlined\">alternate_email</span>Add alias</strong><span class=\"muted small\">Alternate address under a tenant domain.</span></button>" +
         "<button class=\"quick-action\" data-view=\"domains\" data-set-domain-tab=\"catchall\"><strong><span class=\"material-symbols-outlined\">all_inbox</span>Set catch-all</strong><span class=\"muted small\">Unknown recipients route to one mailbox.</span></button>" +
-        "</div></section><div class=\"grid two-col\"><section class=\"card\"><div class=\"panel-head\"><div><h4>Setup path</h4><p>The normal production order for a new customer or site.</p></div><button class=\"button primary\" data-view=\"onboarding\"><span class=\"material-symbols-outlined\">arrow_forward</span>Open onboarding</button></div><div class=\"card-body step-list\">" +
-        tasks.map(task => "<div class=\"step-title\"><span>" + esc(task[0]) + "</span>" + badge(task[1] ? "ready" : "needed") + "</div>").join("") +
-        "</div></section><section class=\"card\"><div class=\"panel-head\"><div><h4>Recent audit</h4><p>Latest admin/security actions.</p></div><button class=\"button\" data-view=\"audit\"><span class=\"material-symbols-outlined\">receipt_long</span>View audit</button></div><div class=\"table-wrap\"><table><tbody>" +
+        "</div></section><div class=\"grid two-col\">" + scopeCard + "<section class=\"card\"><div class=\"panel-head\"><div><h4>Recent audit</h4><p>Latest admin/security actions.</p></div><button class=\"button\" data-view=\"audit\"><span class=\"material-symbols-outlined\">receipt_long</span>View audit</button></div><div class=\"table-wrap\"><table><tbody>" +
         visible(state.audit).slice(0,6).map(auditRow).join("") + emptyRows(state.audit, "No audit events yet.") +
         "</tbody></table></div></section></div>";
     }
@@ -734,7 +741,8 @@ const adminIndexHTML = `<!doctype html>
         "<button class=\"button primary full\" type=\"submit\"><span class=\"material-symbols-outlined\">person_add</span>Create " + esc(mailboxType === "shared" ? "shared mailbox" : "user") + "</button></form></div>";
     }
     function renderTenants() {
-      return "<div class=\"grid two-col\"><section class=\"card\"><div class=\"panel-head\"><div><h4>Tenants</h4><p>Each tenant is an isolated organization boundary.</p></div><button class=\"button\" data-view=\"onboarding\"><span class=\"material-symbols-outlined\">add</span>Guided create</button></div>" +
+      const actions = setupIncomplete() ? "<button class=\"button\" data-view=\"onboarding\"><span class=\"material-symbols-outlined\">add</span>Guided create</button>" : "";
+      return "<div class=\"grid two-col\"><section class=\"card\"><div class=\"panel-head\"><div><h4>Tenants</h4><p>Each tenant is an isolated organization boundary.</p></div>" + actions + "</div>" +
         table(["Tenant", "Slug", "Status", "Created", "Actions"], visible(state.tenants).map(item => "<tr><td><div class=\"identity\"><span class=\"initials\">" + esc(initials(item.name)) + "</span><div><strong>" + esc(item.name) + "</strong><div class=\"muted small\">ID " + esc(item.id) + "</div></div></div></td><td><code>" + esc(item.slug) + "</code></td><td>" + badge(item.status) + "</td><td>" + esc(dateText(item.created_at)) + "</td><td><button class=\"button\" data-select-tenant=\"" + esc(item.id) + "\"><span class=\"material-symbols-outlined\">check_circle</span>Select</button></td></tr>"), "No tenants match this view.") +
         "</section><section class=\"card\"><div class=\"panel-head\"><div><h4>Create tenant</h4><p>First step for every customer, site, or organization.</p></div></div><div class=\"card-body\">" + tenantStep() + "</div></section></div>";
     }
