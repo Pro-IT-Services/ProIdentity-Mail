@@ -137,6 +137,43 @@ const adminIndexHTML = `<!doctype html>
       white-space: nowrap;
     }
     main { width: min(1420px, 100%); margin: 0 auto; padding: 24px 28px 36px; }
+    .scope-bar {
+      margin-bottom: 16px;
+      border: 1px solid var(--outline);
+      border-radius: 8px;
+      background: var(--surface);
+      box-shadow: var(--shadow);
+      padding: 12px 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .scope-main { display: flex; align-items: end; gap: 12px; flex-wrap: wrap; min-width: 0; }
+    .scope-picker { min-width: 230px; }
+    .scope-picker select { width: 100%; }
+    .scope-empty {
+      min-height: 36px;
+      border: 1px dashed var(--outline);
+      border-radius: 8px;
+      padding: 8px 10px;
+      display: flex;
+      align-items: center;
+      color: var(--muted);
+      font-weight: 700;
+    }
+    .scope-summary { display: flex; align-items: center; justify-content: end; gap: 8px; flex-wrap: wrap; }
+    .context-field {
+      min-height: 36px;
+      border-radius: 8px;
+      border: 1px solid var(--outline);
+      background: var(--soft);
+      color: var(--ink);
+      padding: 8px 10px;
+      display: flex;
+      align-items: center;
+      font-weight: 700;
+    }
     .hero {
       display: flex;
       align-items: end;
@@ -355,6 +392,10 @@ const adminIndexHTML = `<!doctype html>
       .search { width: 100%; }
       main { padding: 18px 14px 28px; }
       .hero { align-items: stretch; flex-direction: column; }
+      .scope-bar { align-items: stretch; flex-direction: column; }
+      .scope-main { align-items: stretch; }
+      .scope-picker { min-width: 100%; }
+      .scope-summary { justify-content: start; }
       .stats, .two-col, .three-col { grid-template-columns: 1fr; }
       .quick-actions { grid-template-columns: 1fr; }
       .form-grid { grid-template-columns: 1fr; }
@@ -405,6 +446,7 @@ const adminIndexHTML = `<!doctype html>
       </div>
     </header>
     <main>
+      <section class="scope-bar" id="scope-bar"></section>
       <section class="hero">
         <div>
           <h3 id="hero-title">Mail platform control center</h3>
@@ -452,7 +494,14 @@ const adminIndexHTML = `<!doctype html>
       if (!q) return items;
       return items.filter(item => JSON.stringify(item).toLowerCase().includes(q));
     };
-    const selectedTenantDomains = () => state.domains.filter(item => !state.selectedTenantId || String(item.tenant_id) === String(state.selectedTenantId));
+    const domainsForTenant = (tenantID = state.selectedTenantId) => state.domains.filter(item => tenantID && String(item.tenant_id) === String(tenantID));
+    const selectedTenantDomains = () => domainsForTenant();
+    const selectedTenant = () => byID(state.tenants, state.selectedTenantId);
+    const selectedDomain = () => byID(state.domains, state.selectedDomainId);
+    const scopedUsers = () => state.users.filter(item =>
+      state.selectedTenantId && String(item.tenant_id) === String(state.selectedTenantId) &&
+      state.selectedDomainId && String(item.primary_domain_id) === String(state.selectedDomainId)
+    );
     const filteredUsers = () => visible(state.users.filter(item =>
       (!state.selectedTenantId || String(item.tenant_id) === String(state.selectedTenantId)) &&
       (!state.selectedDomainId || String(item.primary_domain_id) === String(state.selectedDomainId))
@@ -485,6 +534,32 @@ const adminIndexHTML = `<!doctype html>
       if (!response.ok) throw new Error(data.error || response.statusText || "Request failed");
       return data;
     }
+    function syncScope() {
+      if (!state.tenants.some(item => String(item.id) === String(state.selectedTenantId))) {
+        state.selectedTenantId = state.tenants[0] ? String(state.tenants[0].id) : "";
+      }
+      const domains = domainsForTenant();
+      if (!domains.some(item => String(item.id) === String(state.selectedDomainId))) {
+        state.selectedDomainId = domains[0] ? String(domains[0].id) : "";
+      }
+      if (state.dns && String(state.dns.domain_id) !== String(state.selectedDomainId)) state.dns = null;
+    }
+    function setTenantScope(tenantID) {
+      state.selectedTenantId = String(tenantID || "");
+      const nextDomain = domainsForTenant()[0];
+      state.selectedDomainId = nextDomain ? String(nextDomain.id) : "";
+      state.dns = null;
+      state.query = "";
+      $("#search").value = "";
+      render();
+    }
+    function setDomainScope(domainID) {
+      state.selectedDomainId = String(domainID || "");
+      state.dns = null;
+      state.query = "";
+      $("#search").value = "";
+      render();
+    }
     async function bootstrapSession() {
       const response = await fetch("/api/v1/session", {credentials: "same-origin", cache: "no-store"});
       if (!response.ok) {
@@ -511,8 +586,7 @@ const adminIndexHTML = `<!doctype html>
       state.quarantine = quarantine || [];
       state.audit = audit || [];
       state.policies = policies || [];
-      if (!state.selectedTenantId && state.tenants[0]) state.selectedTenantId = String(state.tenants[0].id);
-      if (!state.selectedDomainId && state.domains[0]) state.selectedDomainId = String(state.domains[0].id);
+      syncScope();
       if ((!state.tenants.length || !state.domains.length || !state.users.length) && state.view === "dashboard") state.view = "onboarding";
       render();
       checkHealth();
@@ -544,10 +618,34 @@ const adminIndexHTML = `<!doctype html>
       return "<section class=\"card\"><div class=\"panel-head\"><div><h4>" + esc(title) + "</h4><p>" + esc(subtitle) + "</p></div>" + actionsHTML + "</div>" + table(headings, rows, emptyText) + "</section>";
     }
     function tenantDomainActions(includeAllDomain = false) {
-      return "<div class=\"actions\"><select id=\"selected-tenant\">" + tenantOptions(state.selectedTenantId) + "</select><select id=\"selected-domain\">" + (includeAllDomain ? "<option value=\"\">All domains</option>" : "") + domainOptions(state.selectedTenantId, state.selectedDomainId) + "</select></div>";
+      const tenant = selectedTenant();
+      const domain = selectedDomain();
+      const badges = ["Tenant: " + (tenant ? tenant.name : "none")];
+      if (includeAllDomain || domain) badges.push("Domain: " + (domain ? domain.name : "none"));
+      return "<div class=\"actions\">" + badges.map(item => "<span class=\"badge\">" + esc(item) + "</span>").join("") + "</div>";
+    }
+    function renderScopeBar() {
+      const bar = $("#scope-bar");
+      const tenant = selectedTenant();
+      const domain = selectedDomain();
+      if (!state.tenants.length) {
+        bar.innerHTML = "<div class=\"scope-main\"><div><strong>No tenant selected</strong><div class=\"muted small\">Create the first tenant to unlock domains, users, and routing.</div></div></div><div class=\"scope-summary\"><button class=\"button primary\" data-view=\"onboarding\"><span class=\"material-symbols-outlined\">rocket_launch</span>Start setup</button></div>";
+        return;
+      }
+      const domains = domainsForTenant();
+      const domainSelect = domains.length ? "<label class=\"scope-picker\">Domain<select id=\"global-domain\">" + domainOptions(state.selectedTenantId, state.selectedDomainId) + "</select></label>" : "<div class=\"scope-empty\">No domains in this tenant yet</div>";
+      const users = scopedUsers().length;
+      const shared = scopedUsers().filter(item => (item.mailbox_type || "user") === "shared").length;
+      const aliases = state.aliases.filter(item => domain && String(item.domain_id) === String(domain.id)).length;
+      const catchAll = state.catchAll.some(item => domain && String(item.domain_id) === String(domain.id));
+      bar.innerHTML = "<div class=\"scope-main\"><label class=\"scope-picker\">Tenant<select id=\"global-tenant\">" + tenantOptions(state.selectedTenantId) + "</select></label>" + domainSelect + "</div><div class=\"scope-summary\">" +
+        "<span class=\"badge\">Users " + esc(users) + "</span><span class=\"badge\">Shared " + esc(shared) + "</span><span class=\"badge\">Aliases " + esc(aliases) + "</span><span class=\"badge " + (catchAll ? "good" : "") + "\">Catch-all " + esc(catchAll ? "set" : "none") + "</span>" +
+        (domains.length ? "" : "<button class=\"button\" data-view=\"domains\"><span class=\"material-symbols-outlined\">add_link</span>Add domain</button>") + "</div>";
     }
     function render() {
+      syncScope();
       renderNav();
+      renderScopeBar();
       const meta = views.find(item => item[0] === state.view) || views[0];
       $("#page-title").textContent = meta[1];
       $("#page-subtitle").textContent = meta[2];
@@ -560,7 +658,11 @@ const adminIndexHTML = `<!doctype html>
       return "<article class=\"card stat\"><div class=\"stat-top\"><span>" + label + "</span><span class=\"stat-icon " + (cls || "") + "\"><span class=\"material-symbols-outlined\">" + icon + "</span></span></div><div><div class=\"stat-value\">" + esc(value) + "</div><div class=\"muted small\">Current live count</div></div></article>";
     }
     function renderDashboard() {
-      const held = state.quarantine.filter(item => !item.status || item.status === "held").length;
+      const tenantID = state.selectedTenantId;
+      const domainID = state.selectedDomainId;
+      const held = state.quarantine.filter(item => (!tenantID || String(item.tenant_id) === String(tenantID)) && (!item.status || item.status === "held")).length;
+      const domainCount = domainsForTenant(tenantID).length;
+      const userCount = domainID ? scopedUsers().length : state.users.filter(item => tenantID && String(item.tenant_id) === String(tenantID)).length;
       const incomplete = !state.tenants.length || !state.domains.length || !state.users.length;
       const tasks = [
         ["Create tenant", state.tenants.length > 0],
@@ -571,8 +673,8 @@ const adminIndexHTML = `<!doctype html>
       ];
       return (incomplete ? "<section class=\"card\" style=\"margin-bottom:16px\"><div class=\"panel-head\"><div><h4>Setup needs attention</h4><p>Create the first tenant, domain, and user before using advanced mail routing.</p></div><button class=\"button primary\" data-view=\"onboarding\"><span class=\"material-symbols-outlined\">rocket_launch</span>Continue setup</button></div></section>" : "") +
         "<div class=\"grid stats\">" +
-        stat("Tenants", state.tenants.length, "apartment") + stat("Domains", state.domains.length, "dns") +
-        stat("Users", state.users.length, "group") + stat("Held messages", held, "gpp_maybe") +
+        stat("Tenants", state.tenants.length, "apartment") + stat("Domains", domainCount, "dns") +
+        stat("Users", userCount, "group") + stat("Held messages", held, "gpp_maybe") +
         "</div><section class=\"card\" style=\"margin-bottom:16px\"><div class=\"panel-head\"><div><h4>Common work</h4><p>Jump straight into the task without hunting through a long page.</p></div></div><div class=\"card-body quick-actions\">" +
         "<button class=\"quick-action\" data-view=\"users\" data-set-user-tab=\"people\"><strong><span class=\"material-symbols-outlined\">person_add</span>Create user</strong><span class=\"muted small\">Normal mailbox with quota and login.</span></button>" +
         "<button class=\"quick-action\" data-view=\"domains\" data-set-domain-tab=\"aliases\"><strong><span class=\"material-symbols-outlined\">alternate_email</span>Add alias</strong><span class=\"muted small\">Alternate address under a tenant domain.</span></button>" +
@@ -589,11 +691,24 @@ const adminIndexHTML = `<!doctype html>
       const selectedDomain = state.selectedDomainId || (domains[0] && String(domains[0].id)) || "";
       return "<div class=\"grid two-col\"><section class=\"card\"><div class=\"panel-head\"><div><h4>Guided setup</h4><p>Create in the order mail actually needs: tenant, domain, DNS, user.</p></div></div><div class=\"card-body step-list\">" +
         tenantStep() + domainStep(selectedTenant) + dnsStep(selectedDomain) + userStep(selectedTenant, selectedDomain) +
-        "</div></section><section class=\"card\"><div class=\"panel-head\"><div><h4>Current selection</h4><p>These selections drive domain and user forms.</p></div></div><div class=\"card-body form-grid single\">" +
-        "<label>Tenant<select id=\"selected-tenant\">" + tenantOptions(selectedTenant) + "</select></label>" +
-        "<label>Domain<select id=\"selected-domain\">" + domainOptions(selectedTenant, selectedDomain) + "</select></label>" +
+        "</div></section><section class=\"card\"><div class=\"panel-head\"><div><h4>Current scope</h4><p>Change tenant or domain once in the global bar above.</p></div></div><div class=\"card-body step-list\">" +
         "<div class=\"step\"><strong>" + esc(tenantName(selectedTenant)) + "</strong><span class=\"muted\">" + esc(domainName(selectedDomain)) + "</span><span class=\"muted small\">" + state.users.filter(u => String(u.tenant_id) === String(selectedTenant)).length + " users/shared mailboxes in this tenant</span></div>" +
         "</div></section></div>";
+    }
+    function hiddenInput(name, value) {
+      return "<input type=\"hidden\" name=\"" + esc(name) + "\" value=\"" + esc(value || "") + "\">";
+    }
+    function contextField(label, value, name, id) {
+      return hiddenInput(name, id) + "<label>" + esc(label) + "<span class=\"context-field\">" + esc(value || "Not selected") + "</span></label>";
+    }
+    function tenantField(tenantID) {
+      return tenantID ? contextField("Tenant", tenantName(tenantID), "tenant_id", tenantID) : "<label>Tenant<select name=\"tenant_id\" required>" + tenantOptions(tenantID) + "</select></label>";
+    }
+    function domainField(tenantID, domainID, name = "primary_domain_id") {
+      return domainID ? contextField("Domain", domainName(domainID), name, domainID) : "<label>Domain<select name=\"" + esc(name) + "\" required>" + domainOptions(tenantID, domainID) + "</select></label>";
+    }
+    function typeField(mailboxType) {
+      return hiddenInput("mailbox_type", mailboxType) + "<label>Type<span class=\"context-field\">" + esc(mailboxType === "shared" ? "Shared mailbox" : "User mailbox") + "</span></label>";
     }
     function tenantStep() {
       return "<div class=\"step\"><div class=\"step-title\"><strong>1. Tenant</strong>" + badge(state.tenants.length ? "ready" : "needed") + "</div><form class=\"form-grid\" data-form=\"tenant\">" +
@@ -602,22 +717,21 @@ const adminIndexHTML = `<!doctype html>
     }
     function domainStep(tenantID) {
       return "<div class=\"step\"><div class=\"step-title\"><strong>2. Domain</strong>" + badge(state.domains.length ? "ready" : "needed") + "</div><form class=\"form-grid\" data-form=\"domain\">" +
-        "<label>Tenant<select name=\"tenant_id\" required>" + tenantOptions(tenantID) + "</select></label><label>Domain<input name=\"name\" placeholder=\"example.com\" required></label>" +
+        tenantField(tenantID) + "<label>Domain<input name=\"name\" placeholder=\"example.com\" required></label>" +
         "<button class=\"button primary full\" type=\"submit\"><span class=\"material-symbols-outlined\">add_link</span>Add domain</button></form></div>";
     }
     function dnsStep(domainID) {
       const records = state.dns && String(state.dns.domain_id) === String(domainID) ? state.dns.records : [];
       return "<div class=\"step\"><div class=\"step-title\"><strong>3. DNS records</strong>" + badge(records.length ? "loaded" : "load records") + "</div>" +
-        "<div class=\"actions\"><select id=\"dns-domain\">" + domainOptions(state.selectedTenantId, domainID) + "</select><button class=\"button\" data-load-dns=\"selected\"><span class=\"material-symbols-outlined\">dns</span>Load DNS</button></div>" +
+        "<div class=\"actions\"><span class=\"badge\">Domain: " + esc(domainName(domainID)) + "</span><button class=\"button\" data-load-dns=\"selected\" " + (domainID ? "" : "disabled") + "><span class=\"material-symbols-outlined\">dns</span>Load DNS</button></div>" +
         "<div class=\"record-grid\">" + renderDNSRecords(records) + "</div></div>";
     }
     function userStep(tenantID, domainID, mailboxType = "user") {
       return "<div class=\"step\"><div class=\"step-title\"><strong>4. User</strong>" + badge(state.users.length ? "ready" : "needed") + "</div><form class=\"form-grid\" data-form=\"user\">" +
-        "<label>Tenant<select name=\"tenant_id\" required>" + tenantOptions(tenantID) + "</select></label><label>Domain<select name=\"primary_domain_id\" required>" + domainOptions(tenantID, domainID) + "</select></label>" +
-        "<label>Type<select name=\"mailbox_type\"><option value=\"user\" " + selected(mailboxType, "user") + ">User mailbox</option><option value=\"shared\" " + selected(mailboxType, "shared") + ">Shared mailbox</option></select></label><label>Quota<input name=\"quota_gb\" type=\"number\" min=\"1\" step=\"1\" value=\"10\"></label>" +
+        tenantField(tenantID) + domainField(tenantID, domainID) + typeField(mailboxType) + "<label>Quota<input name=\"quota_gb\" type=\"number\" min=\"1\" step=\"1\" value=\"10\"></label>" +
         "<label>Local part<input name=\"local_part\" placeholder=\"marko\" required></label><label>Display name<input name=\"display_name\" placeholder=\"Marko Admin\"></label>" +
-        "<label class=\"full\">Password<input name=\"password\" type=\"password\" autocomplete=\"new-password\" placeholder=\"Required for normal users; leave empty for shared mailbox\"></label>" +
-        "<button class=\"button primary full\" type=\"submit\"><span class=\"material-symbols-outlined\">person_add</span>Create user</button></form></div>";
+        (mailboxType === "shared" ? "" : "<label class=\"full\">Password<input name=\"password\" type=\"password\" autocomplete=\"new-password\" required></label>") +
+        "<button class=\"button primary full\" type=\"submit\"><span class=\"material-symbols-outlined\">person_add</span>Create " + esc(mailboxType === "shared" ? "shared mailbox" : "user") + "</button></form></div>";
     }
     function renderTenants() {
       return "<div class=\"grid two-col\"><section class=\"card\"><div class=\"panel-head\"><div><h4>Tenants</h4><p>Each tenant is an isolated organization boundary.</p></div><button class=\"button\" data-view=\"onboarding\"><span class=\"material-symbols-outlined\">add</span>Guided create</button></div>" +
@@ -625,50 +739,67 @@ const adminIndexHTML = `<!doctype html>
         "</section><section class=\"card\"><div class=\"panel-head\"><div><h4>Create tenant</h4><p>First step for every customer, site, or organization.</p></div></div><div class=\"card-body\">" + tenantStep() + "</div></section></div>";
     }
     function renderDomains() {
-      const domains = visible(state.domains.filter(item => !state.selectedTenantId || String(item.tenant_id) === String(state.selectedTenantId)));
-      const aliasRows = state.aliases.filter(item => (!state.selectedTenantId || String(item.tenant_id) === String(state.selectedTenantId)) && (!state.selectedDomainId || String(item.domain_id) === String(state.selectedDomainId)));
-      const catchRows = state.catchAll.filter(item => (!state.selectedTenantId || String(item.tenant_id) === String(state.selectedTenantId)) && (!state.selectedDomainId || String(item.domain_id) === String(state.selectedDomainId)));
-      const dnsRecords = state.dns ? state.dns.records : [];
-      const dnsTitle = state.dns ? "DNS records for " + state.dns.domain : "DNS records";
+      const tenantID = state.selectedTenantId;
+      const domainID = state.selectedDomainId;
+      const domain = selectedDomain();
+      const domains = visible(domainsForTenant(tenantID));
+      const aliasRows = state.aliases.filter(item => tenantID && domainID && String(item.tenant_id) === String(tenantID) && String(item.domain_id) === String(domainID));
+      const catchRows = state.catchAll.filter(item => tenantID && domainID && String(item.tenant_id) === String(tenantID) && String(item.domain_id) === String(domainID));
+      const dnsRecords = state.dns && String(state.dns.domain_id) === String(domainID) ? state.dns.records : [];
+      const dnsTitle = domain ? "DNS records for " + domain.name : "DNS records";
       const tabBar = tabs("domain", [["domains", "Domains & DNS", "dns"], ["aliases", "Aliases", "alternate_email"], ["catchall", "Catch-all", "all_inbox"]], state.domainTab);
+      if (!tenantID) {
+        return "<section class=\"card\"><div class=\"panel-head\"><div><h4>Choose tenant first</h4><p>Create or select a tenant before adding domains.</p></div><button class=\"button primary\" data-view=\"onboarding\"><span class=\"material-symbols-outlined\">rocket_launch</span>Start setup</button></div></section>";
+      }
       if (state.domainTab === "aliases") {
-        return "<section class=\"card\"><div class=\"panel-head\"><div><h4>Domain addresses</h4><p>Aliases belong to domains, then forward to a user or shared mailbox inside the tenant.</p></div>" + tenantDomainActions(true) + "</div>" + tabBar + "<div class=\"card-body\"><form class=\"form-grid\" data-form=\"alias\"><label>Tenant<select name=\"tenant_id\" required>" + tenantOptions(state.selectedTenantId) + "</select></label><label>Alias domain<select name=\"domain_id\" required>" + domainOptions(state.selectedTenantId, state.selectedDomainId) + "</select></label><label>Alias local part<input name=\"source_local_part\" placeholder=\"sales\" required></label><label>Destination<select name=\"destination\" required>" + userEmailOptions(state.selectedTenantId) + "</select></label><button class=\"button primary full\" type=\"submit\"><span class=\"material-symbols-outlined\">alternate_email</span>Create alias</button></form></div>" +
-          table(["Alias", "Destination", "Tenant", "Created"], visible(aliasRows).map(item => "<tr><td><strong>" + esc(item.source_local_part + "@" + domainName(item.domain_id)) + "</strong></td><td>" + esc(item.destination) + "</td><td>" + esc(tenantName(item.tenant_id)) + "</td><td>" + esc(dateText(item.created_at)) + "</td></tr>"), "No aliases for this filter.") + "</section>";
+        const body = domainID ? "<div class=\"card-body\"><form class=\"form-grid\" data-form=\"alias\">" + contextField("Tenant", tenantName(tenantID), "tenant_id", tenantID) + contextField("Alias domain", domainName(domainID), "domain_id", domainID) + "<label>Alias local part<input name=\"source_local_part\" placeholder=\"sales\" required></label><label>Destination<select name=\"destination\" required>" + userEmailOptions(tenantID) + "</select></label><button class=\"button primary full\" type=\"submit\"><span class=\"material-symbols-outlined\">alternate_email</span>Create alias</button></form></div>" : "<div class=\"card-body\"><div class=\"scope-empty\">Add a domain in this tenant before creating aliases.</div></div>";
+        return "<section class=\"card\"><div class=\"panel-head\"><div><h4>Domain aliases</h4><p>Only addresses for the selected domain are shown here; destinations can be any mailbox in the tenant.</p></div>" + tenantDomainActions(true) + "</div>" + tabBar + body +
+          table(["Alias", "Destination", "Created"], visible(aliasRows).map(item => "<tr><td><strong>" + esc(item.source_local_part + "@" + domainName(item.domain_id)) + "</strong></td><td>" + esc(item.destination) + "</td><td>" + esc(dateText(item.created_at)) + "</td></tr>"), "No aliases for this domain.") + "</section>";
       }
       if (state.domainTab === "catchall") {
-        return "<section class=\"card\"><div class=\"panel-head\"><div><h4>Catch-all mailbox</h4><p>Unknown recipients for a domain route to one selected mailbox after normal users and aliases are checked.</p></div>" + tenantDomainActions(true) + "</div>" + tabBar + "<div class=\"card-body\"><form class=\"form-grid\" data-form=\"catch-all\"><label>Tenant<select name=\"tenant_id\" required>" + tenantOptions(state.selectedTenantId) + "</select></label><label>Domain<select name=\"domain_id\" required>" + domainOptions(state.selectedTenantId, state.selectedDomainId) + "</select></label><label class=\"full\">Catch-all mailbox<select name=\"destination\" required>" + userEmailOptions(state.selectedTenantId) + "</select></label><button class=\"button primary full\" type=\"submit\"><span class=\"material-symbols-outlined\">all_inbox</span>Set catch-all mailbox</button></form></div>" +
-          table(["Domain", "Catch-all mailbox", "Status"], visible(catchRows).map(item => "<tr><td>" + esc(domainName(item.domain_id)) + "</td><td>" + esc(item.destination) + "</td><td>" + badge(item.status) + "</td></tr>"), "No catch-all mailbox configured for this filter.") + "</section>";
+        const body = domainID ? "<div class=\"card-body\"><form class=\"form-grid\" data-form=\"catch-all\">" + contextField("Tenant", tenantName(tenantID), "tenant_id", tenantID) + contextField("Domain", domainName(domainID), "domain_id", domainID) + "<label class=\"full\">Catch-all mailbox<select name=\"destination\" required>" + userEmailOptions(tenantID) + "</select></label><button class=\"button primary full\" type=\"submit\"><span class=\"material-symbols-outlined\">all_inbox</span>Set catch-all mailbox</button></form></div>" : "<div class=\"card-body\"><div class=\"scope-empty\">Add a domain in this tenant before setting catch-all routing.</div></div>";
+        return "<section class=\"card\"><div class=\"panel-head\"><div><h4>Catch-all mailbox</h4><p>Unknown recipients for the selected domain route to one mailbox after users and aliases are checked.</p></div>" + tenantDomainActions(true) + "</div>" + tabBar + body +
+          table(["Domain", "Catch-all mailbox", "Status"], visible(catchRows).map(item => "<tr><td>" + esc(domainName(item.domain_id)) + "</td><td>" + esc(item.destination) + "</td><td>" + badge(item.status) + "</td></tr>"), "No catch-all mailbox configured for this domain.") + "</section>";
       }
-      return "<div class=\"grid two-col\"><section class=\"card\"><div class=\"panel-head\"><div><h4>Domains</h4><p>Hosted domains and their DNS records.</p></div>" + tenantDomainActions(false) + "</div>" + tabBar +
-        table(["Domain", "Tenant", "Status", "DKIM", "Actions"], domains.map(item => "<tr><td><strong>" + esc(item.name) + "</strong><div class=\"muted small\">ID " + esc(item.id) + "</div></td><td>" + esc(tenantName(item.tenant_id)) + "</td><td>" + badge(item.status) + "</td><td><code>" + esc(item.dkim_selector || "mail") + "</code></td><td><div class=\"actions\"><button class=\"button\" data-select-domain=\"" + esc(item.id) + "\"><span class=\"material-symbols-outlined\">check_circle</span>Select</button><button class=\"button\" data-load-dns=\"" + esc(item.id) + "\"><span class=\"material-symbols-outlined\">dns</span>DNS</button></div></td></tr>"), "No domains match this view.") +
-        "</section><section class=\"card\"><div class=\"panel-head\"><div><h4>Add domain</h4><p>Choose a tenant first; no raw IDs needed.</p></div></div><div class=\"card-body\">" + domainStep(state.selectedTenantId) + "</div><div class=\"panel-head\"><div><h4>" + esc(dnsTitle) + "</h4><p>Publish these records with your DNS provider.</p></div></div><div class=\"card-body record-grid\">" + renderDNSRecords(dnsRecords) + "</div></section></div>";
+      return "<div class=\"grid two-col\"><section class=\"card\"><div class=\"panel-head\"><div><h4>Domains in " + esc(tenantName(tenantID)) + "</h4><p>Select one domain, then use the tabs for aliases and catch-all.</p></div>" + tenantDomainActions(false) + "</div>" + tabBar +
+        table(["Domain", "Status", "DKIM", "Actions"], domains.map(item => "<tr><td><strong>" + esc(item.name) + "</strong><div class=\"muted small\">ID " + esc(item.id) + "</div></td><td>" + badge(String(item.id) === String(domainID) ? "current" : item.status) + "</td><td><code>" + esc(item.dkim_selector || "mail") + "</code></td><td><div class=\"actions\"><button class=\"button\" data-select-domain=\"" + esc(item.id) + "\"><span class=\"material-symbols-outlined\">check_circle</span>Open</button><button class=\"button\" data-load-dns=\"" + esc(item.id) + "\"><span class=\"material-symbols-outlined\">dns</span>DNS</button></div></td></tr>"), "No domains in this tenant yet.") +
+        "</section><section class=\"card\"><div class=\"panel-head\"><div><h4>Add domain</h4><p>New domains are added to the selected tenant.</p></div></div><div class=\"card-body\">" + domainStep(tenantID) + "</div><div class=\"panel-head\"><div><h4>" + esc(dnsTitle) + "</h4><p>Publish these records with your DNS provider.</p></div></div><div class=\"card-body record-grid\">" + renderDNSRecords(dnsRecords) + "</div></section></div>";
     }
     function renderUsers() {
-      const permissionRows = state.sharedPermissions.filter(item => !state.selectedTenantId || String(item.tenant_id) === String(state.selectedTenantId));
+      const tenantID = state.selectedTenantId;
+      const domainID = state.selectedDomainId;
+      const scopedIDs = new Set(scopedUsers().map(item => String(item.id)));
+      const permissionRows = state.sharedPermissions.filter(item => tenantID && String(item.tenant_id) === String(tenantID) && (scopedIDs.has(String(item.shared_mailbox_id)) || scopedIDs.has(String(item.user_id))));
       const tabBar = tabs("user", [["people", "People", "person"], ["shared", "Shared mailboxes", "groups"], ["permissions", "Permissions", "key"]], state.userTab);
       const userRows = item => "<tr><td><div class=\"identity\"><span class=\"initials\">" + esc(initials(item.display_name || item.local_part)) + "</span><div><strong>" + emailFor(item) + "</strong><div class=\"muted small\">" + esc(item.display_name || "-") + "</div></div></div></td><td>" + esc(domainName(item.primary_domain_id)) + "</td><td>" + badge(item.status) + "</td><td>" + esc(formatBytes(item.quota_bytes)) + "</td><td>" + esc(dateText(item.created_at)) + "</td></tr>";
+      if (!tenantID || !domainID) {
+        return "<section class=\"card\"><div class=\"panel-head\"><div><h4>Choose a domain first</h4><p>Users, shared mailboxes, and permissions are managed inside one selected domain.</p></div><button class=\"button\" data-view=\"domains\"><span class=\"material-symbols-outlined\">dns</span>Open domains</button></div>" + tabBar + "<div class=\"card-body\"><div class=\"scope-empty\">Select or create a domain in the global bar before managing users.</div></div></section>";
+      }
       if (state.userTab === "shared") {
-        return "<section class=\"card\"><div class=\"panel-head\"><div><h4>Shared mailboxes</h4><p>Group inboxes are created here; access is granted on the Permissions tab.</p></div>" + tenantDomainActions(true) + "</div>" + tabBar + "<div class=\"card-body\">" + userStep(state.selectedTenantId, state.selectedDomainId, "shared") + "</div>" +
-          table(["Shared mailbox", "Domain", "Status", "Quota", "Created"], filteredSharedMailboxes().map(userRows), "No shared mailboxes match this filter.") + "</section>";
+        return "<section class=\"card\"><div class=\"panel-head\"><div><h4>Shared mailboxes for " + esc(domainName(domainID)) + "</h4><p>Group inboxes are created here; access is granted on the Permissions tab.</p></div>" + tenantDomainActions(true) + "</div>" + tabBar + "<div class=\"card-body\">" + userStep(tenantID, domainID, "shared") + "</div>" +
+          table(["Shared mailbox", "Domain", "Status", "Quota", "Created"], filteredSharedMailboxes().map(userRows), "No shared mailboxes in this domain.") + "</section>";
       }
       if (state.userTab === "permissions") {
-        return "<section class=\"card\"><div class=\"panel-head\"><div><h4>Shared mailbox permissions</h4><p>Grant read, send as, send on behalf, and manage rights for shared mailboxes.</p></div>" + tenantDomainActions(true) + "</div>" + tabBar + "<div class=\"card-body\"><form class=\"form-grid\" data-form=\"shared-permission\"><label>Tenant<select name=\"tenant_id\" required>" + tenantOptions(state.selectedTenantId) + "</select></label><label>Shared mailbox<select name=\"shared_mailbox_id\" required>" + sharedMailboxOptions(state.selectedTenantId) + "</select></label><label>User<select name=\"user_id\" required>" + normalUserOptions(state.selectedTenantId) + "</select></label><label><span><input name=\"can_read\" type=\"checkbox\" checked> Read</span></label><label><span><input name=\"can_send_as\" type=\"checkbox\"> Send as</span></label><label><span><input name=\"can_send_on_behalf\" type=\"checkbox\"> Send on behalf</span></label><label><span><input name=\"can_manage\" type=\"checkbox\"> Manage</span></label><button class=\"button primary full\" type=\"submit\"><span class=\"material-symbols-outlined\">key</span>Grant permission</button></form></div>" +
-          table(["Shared", "User", "Rights"], visible(permissionRows).map(item => "<tr><td>" + esc(userLabel(item.shared_mailbox_id)) + "</td><td>" + esc(userLabel(item.user_id)) + "</td><td>" + esc(permissionText(item)) + "</td></tr>"), "No shared permissions for this tenant.") + "</section>";
+        return "<section class=\"card\"><div class=\"panel-head\"><div><h4>Shared mailbox permissions</h4><p>Grant read, send as, send on behalf, and manage rights inside the selected domain.</p></div>" + tenantDomainActions(true) + "</div>" + tabBar + "<div class=\"card-body\"><form class=\"form-grid\" data-form=\"shared-permission\">" + contextField("Tenant", tenantName(tenantID), "tenant_id", tenantID) + "<label>Shared mailbox<select name=\"shared_mailbox_id\" required>" + sharedMailboxOptions(tenantID, domainID) + "</select></label><label>User<select name=\"user_id\" required>" + normalUserOptions(tenantID, domainID) + "</select></label><label><span><input name=\"can_read\" type=\"checkbox\" checked> Read</span></label><label><span><input name=\"can_send_as\" type=\"checkbox\"> Send as</span></label><label><span><input name=\"can_send_on_behalf\" type=\"checkbox\"> Send on behalf</span></label><label><span><input name=\"can_manage\" type=\"checkbox\"> Manage</span></label><button class=\"button primary full\" type=\"submit\"><span class=\"material-symbols-outlined\">key</span>Grant permission</button></form></div>" +
+          table(["Shared", "User", "Rights"], visible(permissionRows).map(item => "<tr><td>" + esc(userLabel(item.shared_mailbox_id)) + "</td><td>" + esc(userLabel(item.user_id)) + "</td><td>" + esc(permissionText(item)) + "</td></tr>"), "No shared permissions in this domain.") + "</section>";
       }
-      return "<section class=\"card\"><div class=\"panel-head\"><div><h4>People</h4><p>Normal user mailboxes with login, quota, webmail, IMAP, SMTP, CalDAV, and CardDAV access.</p></div>" + tenantDomainActions(true) + "</div>" + tabBar + "<div class=\"card-body\">" + userStep(state.selectedTenantId, state.selectedDomainId, "user") + "</div>" +
-        table(["User", "Domain", "Status", "Quota", "Created"], filteredNormalUsers().map(userRows), "No users match this filter.") + "</section>";
+      return "<section class=\"card\"><div class=\"panel-head\"><div><h4>People for " + esc(domainName(domainID)) + "</h4><p>Normal user mailboxes with login, quota, webmail, IMAP, SMTP, CalDAV, and CardDAV access.</p></div>" + tenantDomainActions(true) + "</div>" + tabBar + "<div class=\"card-body\">" + userStep(tenantID, domainID, "user") + "</div>" +
+        table(["User", "Domain", "Status", "Quota", "Created"], filteredNormalUsers().map(userRows), "No users in this domain.") + "</section>";
     }
     function renderSecurity() {
-      return "<section class=\"card\"><div class=\"panel-head\"><div><h4>Security policy</h4><p>Spam action, malware action, and TLS requirements per tenant.</p></div><button class=\"button\" data-refresh><span class=\"material-symbols-outlined\">refresh</span>Refresh</button></div>" +
-        table(["Tenant", "Spam", "Malware", "Require TLS auth", "Actions"], visible(state.policies).map(item => "<tr><td><strong>" + esc(tenantName(item.tenant_id)) + "</strong><div class=\"muted small\">Tenant " + esc(item.tenant_id) + "</div></td><td><select data-policy-field=\"spam_action\" data-policy=\"" + esc(item.tenant_id) + "\"><option " + selected(item.spam_action, "mark") + ">mark</option><option " + selected(item.spam_action, "quarantine") + ">quarantine</option><option " + selected(item.spam_action, "reject") + ">reject</option></select></td><td><select data-policy-field=\"malware_action\" data-policy=\"" + esc(item.tenant_id) + "\"><option " + selected(item.malware_action, "quarantine") + ">quarantine</option><option " + selected(item.malware_action, "reject") + ">reject</option></select></td><td><input type=\"checkbox\" data-policy-field=\"require_tls_for_auth\" data-policy=\"" + esc(item.tenant_id) + "\" " + checked(item.require_tls_for_auth) + "></td><td><button class=\"button primary\" data-save-policy=\"" + esc(item.tenant_id) + "\"><span class=\"material-symbols-outlined\">save</span>Save</button></td></tr>"), "No tenant policies found. Create a tenant first.") + "</section>";
+      const rows = state.policies.filter(item => !state.selectedTenantId || String(item.tenant_id) === String(state.selectedTenantId));
+      return "<section class=\"card\"><div class=\"panel-head\"><div><h4>Security policy</h4><p>Spam action, malware action, and TLS requirements for the selected tenant.</p></div><button class=\"button\" data-refresh><span class=\"material-symbols-outlined\">refresh</span>Refresh</button></div>" +
+        table(["Tenant", "Spam", "Malware", "Require TLS auth", "Actions"], visible(rows).map(item => "<tr><td><strong>" + esc(tenantName(item.tenant_id)) + "</strong><div class=\"muted small\">Tenant " + esc(item.tenant_id) + "</div></td><td><select data-policy-field=\"spam_action\" data-policy=\"" + esc(item.tenant_id) + "\"><option " + selected(item.spam_action, "mark") + ">mark</option><option " + selected(item.spam_action, "quarantine") + ">quarantine</option><option " + selected(item.spam_action, "reject") + ">reject</option></select></td><td><select data-policy-field=\"malware_action\" data-policy=\"" + esc(item.tenant_id) + "\"><option " + selected(item.malware_action, "quarantine") + ">quarantine</option><option " + selected(item.malware_action, "reject") + ">reject</option></select></td><td><input type=\"checkbox\" data-policy-field=\"require_tls_for_auth\" data-policy=\"" + esc(item.tenant_id) + "\" " + checked(item.require_tls_for_auth) + "></td><td><button class=\"button primary\" data-save-policy=\"" + esc(item.tenant_id) + "\"><span class=\"material-symbols-outlined\">save</span>Save</button></td></tr>"), "No policy found for this tenant.") + "</section>";
     }
     function renderQuarantine() {
+      const rows = state.quarantine.filter(item => !state.selectedTenantId || String(item.tenant_id) === String(state.selectedTenantId));
       return "<section class=\"card\"><div class=\"panel-head\"><div><h4>Quarantine</h4><p>Release false positives or delete messages that should not be delivered.</p></div><button class=\"button\" data-refresh><span class=\"material-symbols-outlined\">refresh</span>Refresh</button></div>" +
-        table(["Verdict", "Recipient", "Sender", "Scanner", "Status", "Date", "Actions"], visible(state.quarantine).map(item => "<tr><td>" + badge(item.verdict) + "</td><td><strong>" + esc(item.recipient) + "</strong><div class=\"muted small\">Tenant " + esc(item.tenant_id) + "</div></td><td class=\"muted\">" + esc(item.sender || "-") + "</td><td>" + esc(item.scanner || "-") + "</td><td>" + badge(item.status || "held") + "</td><td>" + esc(dateText(item.created_at)) + "</td><td>" + quarantineActions(item) + "</td></tr>"), "No quarantine events match this view.") + "</section>";
+        table(["Verdict", "Recipient", "Sender", "Scanner", "Status", "Date", "Actions"], visible(rows).map(item => "<tr><td>" + badge(item.verdict) + "</td><td><strong>" + esc(item.recipient) + "</strong><div class=\"muted small\">Tenant " + esc(item.tenant_id) + "</div></td><td class=\"muted\">" + esc(item.sender || "-") + "</td><td>" + esc(item.scanner || "-") + "</td><td>" + badge(item.status || "held") + "</td><td>" + esc(dateText(item.created_at)) + "</td><td>" + quarantineActions(item) + "</td></tr>"), "No quarantine events for this tenant.") + "</section>";
     }
     function renderAudit() {
+      const rows = state.audit.filter(item => !state.selectedTenantId || !item.tenant_id || String(item.tenant_id) === String(state.selectedTenantId));
       return "<section class=\"card\"><div class=\"panel-head\"><div><h4>Audit log</h4><p>Security-significant admin and message events.</p></div><button class=\"button\" data-refresh><span class=\"material-symbols-outlined\">refresh</span>Refresh</button></div>" +
-        table(["Action", "Actor", "Target", "Tenant", "Metadata", "Date"], visible(state.audit).map(auditFullRow), "No audit events match this view.") + "</section>";
+        table(["Action", "Actor", "Target", "Tenant", "Metadata", "Date"], visible(rows).map(auditFullRow), "No audit events for this tenant.") + "</section>";
     }
     function renderSystem() {
       return "<div class=\"grid two-col\"><section class=\"card\"><div class=\"panel-head\"><div><h4>Service health</h4><p>Live browser checks against the admin service.</p></div><button class=\"button\" data-check-health><span class=\"material-symbols-outlined\">monitor_heart</span>Check health</button></div><div class=\"card-body grid three-col\">" +
@@ -693,18 +824,18 @@ const adminIndexHTML = `<!doctype html>
       return rows.length ? rows.join("") : "<option value=\"\">Create a domain first</option>";
     }
     function userEmailOptions(tenantID) {
-      const rows = state.users.filter(item => !tenantID || String(item.tenant_id) === String(tenantID)).map(item => {
+      const rows = state.users.filter(item => tenantID && String(item.tenant_id) === String(tenantID)).map(item => {
         const email = emailAddress(item);
         return "<option value=\"" + esc(email) + "\">" + esc(email) + " (" + esc(item.mailbox_type || "user") + ")</option>";
       });
       return rows.length ? rows.join("") : "<option value=\"\">Create a user first</option>";
     }
-    function normalUserOptions(tenantID) {
-      const rows = normalUsers().filter(item => !tenantID || String(item.tenant_id) === String(tenantID)).map(item => "<option value=\"" + esc(item.id) + "\">" + emailFor(item) + "</option>");
+    function normalUserOptions(tenantID, domainID = "") {
+      const rows = normalUsers().filter(item => tenantID && String(item.tenant_id) === String(tenantID) && (!domainID || String(item.primary_domain_id) === String(domainID))).map(item => "<option value=\"" + esc(item.id) + "\">" + emailFor(item) + "</option>");
       return rows.length ? rows.join("") : "<option value=\"\">Create a user first</option>";
     }
-    function sharedMailboxOptions(tenantID) {
-      const rows = sharedMailboxes().filter(item => !tenantID || String(item.tenant_id) === String(tenantID)).map(item => "<option value=\"" + esc(item.id) + "\">" + emailFor(item) + "</option>");
+    function sharedMailboxOptions(tenantID, domainID = "") {
+      const rows = sharedMailboxes().filter(item => tenantID && String(item.tenant_id) === String(tenantID) && (!domainID || String(item.primary_domain_id) === String(domainID))).map(item => "<option value=\"" + esc(item.id) + "\">" + emailFor(item) + "</option>");
       return rows.length ? rows.join("") : "<option value=\"\">Create a shared mailbox first</option>";
     }
     function userLabel(id) {
@@ -826,7 +957,13 @@ const adminIndexHTML = `<!doctype html>
       const qButton = event.target.closest("[data-quarantine-action]");
       if (qButton) resolveQuarantine(qButton.dataset.quarantineId, qButton.dataset.quarantineAction).catch(error => showStatus(error.message, true));
       const selectTenant = event.target.closest("[data-select-tenant]")?.dataset.selectTenant;
-      if (selectTenant) { state.selectedTenantId = String(selectTenant); setView("domains"); }
+      if (selectTenant) {
+        state.selectedTenantId = String(selectTenant);
+        const nextDomain = domainsForTenant()[0];
+        state.selectedDomainId = nextDomain ? String(nextDomain.id) : "";
+        state.dns = null;
+        setView("domains");
+      }
       const selectDomain = event.target.closest("[data-select-domain]")?.dataset.selectDomain;
       if (selectDomain) { state.selectedDomainId = String(selectDomain); loadDNS(selectDomain).catch(error => showStatus(error.message, true)); }
       const copy = event.target.closest("[data-copy]")?.dataset.copy;
@@ -839,16 +976,11 @@ const adminIndexHTML = `<!doctype html>
       submitForm(form).catch(error => showStatus(error.message, true));
     });
     document.addEventListener("change", event => {
-      if (event.target.id === "selected-tenant") {
-        state.selectedTenantId = event.target.value;
-        const nextDomain = state.domains.find(item => String(item.tenant_id) === String(state.selectedTenantId));
-        const allowAllDomains = state.view === "users" || (state.view === "domains" && state.domainTab !== "domains");
-        state.selectedDomainId = allowAllDomains ? "" : (nextDomain ? String(nextDomain.id) : "");
-        render();
+      if (event.target.id === "global-tenant") {
+        setTenantScope(event.target.value);
       }
-      if (event.target.id === "selected-domain") {
-        state.selectedDomainId = event.target.value;
-        render();
+      if (event.target.id === "global-domain") {
+        setDomainScope(event.target.value);
       }
     });
     $("#search").addEventListener("input", event => { state.query = event.target.value; render(); });
