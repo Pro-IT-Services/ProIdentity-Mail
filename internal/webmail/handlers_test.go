@@ -606,6 +606,35 @@ func TestCompositeStoreReportsSpamByLearningAndMovingMessage(t *testing.T) {
 	}
 }
 
+func TestCompositeStoreReportsHamByLearningAndMovingMessageToInbox(t *testing.T) {
+	root := t.TempDir()
+	messageDir := filepath.Join(root, "example.com", "marko", "Maildir", ".Spam", "new")
+	if err := os.MkdirAll(messageDir, 0750); err != nil {
+		t.Fatalf("mkdir spam: %v", err)
+	}
+	messageID := "message-1"
+	messagePath := filepath.Join(messageDir, messageID)
+	if err := os.WriteFile(messagePath, []byte("From: sender@example.net\r\nTo: marko@example.com\r\nSubject: Good\r\n\r\nbody"), 0640); err != nil {
+		t.Fatalf("write message: %v", err)
+	}
+	auth := &reportRecorder{}
+	learner := &fakeLearner{}
+	store := CompositeStore{Auth: auth, Mailbox: MaildirStore{Root: root}, Learner: learner}
+
+	if err := store.ReportMessage(context.Background(), "marko@example.com", messageID, "ham"); err != nil {
+		t.Fatalf("ReportMessage returned error: %v", err)
+	}
+	if learner.verdict != "ham" || learner.path != messagePath {
+		t.Fatalf("unexpected learner call: verdict=%q path=%q", learner.verdict, learner.path)
+	}
+	if auth.verdict != "ham" || auth.messageID != messageID {
+		t.Fatalf("unexpected audit call: verdict=%q id=%q", auth.verdict, auth.messageID)
+	}
+	if _, err := os.Stat(filepath.Join(root, "example.com", "marko", "Maildir", "new", messageID)); err != nil {
+		t.Fatalf("message was not moved to inbox: %v", err)
+	}
+}
+
 type fakeStore struct {
 	valid                bool
 	sent                 OutboundMessage

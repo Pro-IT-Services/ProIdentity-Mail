@@ -1439,7 +1439,7 @@ const webmailIndexHTML = `<!doctype html>
         if (!response.ok) throw await responseError(response, "Message report failed");
       }
       await loadMessages();
-      showToast((ids.length === 1 ? "Message" : ids.length + " messages") + (verdict === "spam" ? " marked as spam" : " marked as not spam"));
+      showToast((ids.length === 1 ? "Message" : ids.length + " messages") + (verdict === "spam" ? " trained as spam and moved to Spam" : " trained as not spam and moved to Inbox"));
     }
     async function selectedDetail() {
       if (!state.selected) throw new Error("Select a message first");

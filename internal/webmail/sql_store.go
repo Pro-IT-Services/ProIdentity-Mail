@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
@@ -481,16 +480,16 @@ func (s CompositeStore) ReportMessage(ctx context.Context, email, id, verdict st
 	}
 	if s.Learner != nil {
 		if err := s.Learner.Learn(ctx, path, verdict); err != nil {
-			log.Printf("rspamd learning failed verdict=%q: %v", verdict, err)
+			return fmt.Errorf("rspamd learning failed verdict=%q: %w", verdict, err)
 		}
 	}
 	if verdict == "spam" {
 		if err := s.Mailbox.MoveMessage(ctx, email, id, "spam"); err != nil {
-			log.Printf("spam folder move failed: %v", err)
+			return fmt.Errorf("move message to spam: %w", err)
 		}
 	} else if verdict == "ham" {
 		if err := s.Mailbox.MoveMessage(ctx, email, id, "inbox"); err != nil {
-			log.Printf("inbox folder move failed: %v", err)
+			return fmt.Errorf("move message to inbox: %w", err)
 		}
 	}
 	return s.Auth.ReportMessage(ctx, email, id, verdict)
