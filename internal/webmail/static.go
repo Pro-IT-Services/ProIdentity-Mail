@@ -1176,19 +1176,23 @@ const webmailIndexHTML = `<!doctype html>
       await loadMessages();
       showToast(ids.length === 1 ? "Message deleted forever" : ids.length + " messages deleted forever");
     }
-    function canDropMessage(targetFolder) {
-      if (!state.dragging) return false;
-      const source = String(state.dragging.sourceFolder || "").toLowerCase();
-      const target = String(targetFolder.id || "").toLowerCase();
+    function canDropOneMessage(message, source, target, targetFolder) {
+      const origin = String(message.trash_origin || "").toLowerCase();
       if (source === "spam") return target === "trash";
       if (source === "sent") return target === "trash";
       if (source === "inbox") return target === "trash" || (target && !targetFolder.system);
       if (source === "trash") {
-        const origin = String(state.dragging.trashOrigin || "").toLowerCase();
         if (origin === "sent") return target === "sent";
         return target === "inbox" || (target && !targetFolder.system);
       }
       return false;
+    }
+    function canDropMessage(targetFolder) {
+      if (!state.dragging) return false;
+      const source = String(state.dragging.sourceFolder || "").toLowerCase();
+      const target = String(targetFolder.id || "").toLowerCase();
+      const ids = Array.isArray(state.dragging.ids) && state.dragging.ids.length ? state.dragging.ids : [state.dragging.id];
+      return ids.every(id => canDropOneMessage(state.messages.find(row => row.id === id) || {}, source, target, targetFolder));
     }
     async function moveDraggedMessage(targetFolder) {
       if (!state.dragging) return;
@@ -1196,10 +1200,13 @@ const webmailIndexHTML = `<!doctype html>
         showToast("This move is not allowed", true);
         return;
       }
-      const response = await fetch("/api/v1/messages/" + encodeURIComponent(state.dragging.id) + "/move", {method: "POST", credentials: "same-origin", cache: "no-store", headers: {"Content-Type": "application/json", "X-CSRF-Token": state.csrf}, body: JSON.stringify({folder: targetFolder.id})});
+      const ids = Array.isArray(state.dragging.ids) && state.dragging.ids.length ? state.dragging.ids : [state.dragging.id];
+      const response = ids.length === 1
+        ? await fetch("/api/v1/messages/" + encodeURIComponent(ids[0]) + "/move", {method: "POST", credentials: "same-origin", cache: "no-store", headers: {"Content-Type": "application/json", "X-CSRF-Token": state.csrf}, body: JSON.stringify({folder: targetFolder.id})})
+        : await fetch("/api/v1/messages/batch/move", {method: "POST", credentials: "same-origin", cache: "no-store", headers: {"Content-Type": "application/json", "X-CSRF-Token": state.csrf}, body: JSON.stringify({ids, folder: targetFolder.id})});
       if (!response.ok) throw await responseError(response, "Move failed");
       await loadMessages();
-      showToast("Message moved to " + targetFolder.name);
+      showToast((ids.length === 1 ? "Message" : ids.length + " messages") + " moved to " + targetFolder.name);
     }
     function folderIcon(folder) {
       const id = String(folder.id || "").toLowerCase();
@@ -1547,10 +1554,10 @@ const webmailIndexHTML = `<!doctype html>
       }).join("");
       document.querySelectorAll(".message[draggable='true']").forEach(item => {
         item.addEventListener("dragstart", event => {
-          const message = state.messages.find(row => row.id === item.dataset.id) || {};
-          state.dragging = {id: item.dataset.id, sourceFolder: state.folder, trashOrigin: message.trash_origin || ""};
+          const ids = state.selectedIds.has(item.dataset.id) ? activeSelectionIDs() : [item.dataset.id];
+          state.dragging = {id: item.dataset.id, ids, sourceFolder: state.folder};
           event.dataTransfer.effectAllowed = "move";
-          event.dataTransfer.setData("text/plain", item.dataset.id);
+          event.dataTransfer.setData("text/plain", ids.join(","));
           item.classList.add("dragging");
         });
         item.addEventListener("dragend", () => {
