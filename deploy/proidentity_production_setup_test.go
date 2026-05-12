@@ -173,6 +173,11 @@ func TestProductionSetupSeparatesServiceSecrets(t *testing.T) {
 		`EnvironmentFile=/etc/proidentity-mail/groupware.env`,
 		`install_env_file "${ENV_FILE}" root root 0600`,
 		`install_env_file "${WEBMAIL_ENV_FILE}" root vmail 0640`,
+		`set_env_file "${ADMIN_ENV_FILE}" PROIDENTITY_DB_NAME "${DB_NAME}"`,
+		`set_env_file "${ADMIN_ENV_FILE}" PROIDENTITY_DB_PASSWORD "${DB_PASSWORD}"`,
+		`set_env_file "${ADMIN_ENV_FILE}" PROIDENTITY_TLS_MODE "${TLS_MODE}"`,
+		`set_env_file "${ADMIN_ENV_FILE}" PROIDENTITY_AUTH_POLICY_NONCE "${AUTH_POLICY_NONCE}"`,
+		`set_env_file "${ADMIN_ENV_FILE}" PROIDENTITY_AUTOCONFIG_HOSTNAME "${AUTOCONFIG_HOSTNAME}"`,
 		`gpasswd -d vmail proidentity`,
 	} {
 		if !strings.Contains(script, want) {
