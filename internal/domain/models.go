@@ -232,6 +232,8 @@ type MailServerSettings struct {
 	PublicIPv4              string  `json:"public_ipv4,omitempty"`
 	PublicIPv6              string  `json:"public_ipv6,omitempty"`
 	SNIEnabled              bool    `json:"sni_enabled"`
+	TLSMode                 string  `json:"tls_mode"`
+	ForceHTTPS              bool    `json:"force_https"`
 	DefaultLanguage         string  `json:"default_language"`
 	MailboxMFAEnabled       bool    `json:"mailbox_mfa_enabled"`
 	ForceMailboxMFA         bool    `json:"force_mailbox_mfa"`

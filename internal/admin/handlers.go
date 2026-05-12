@@ -2627,6 +2627,14 @@ func (h handler) updateMailServerSettings(w http.ResponseWriter, r *http.Request
 			return
 		}
 	}
+	req.TLSMode = strings.ToLower(strings.TrimSpace(req.TLSMode))
+	if req.TLSMode == "" {
+		req.TLSMode = "system"
+	}
+	if !validChoice(req.TLSMode, "system", "none", "behind-proxy", "letsencrypt-http", "letsencrypt-dns-cloudflare", "custom-cert") {
+		writeError(w, http.StatusBadRequest, "tls_mode must be system, none, behind-proxy, letsencrypt-http, letsencrypt-dns-cloudflare, or custom-cert")
+		return
+	}
 	req.DefaultLanguage = i18n.NormalizeLanguage(req.DefaultLanguage)
 	if req.DefaultLanguage == "" {
 		writeError(w, http.StatusBadRequest, "default_language is not supported")
@@ -2637,7 +2645,7 @@ func (h handler) updateMailServerSettings(w http.ResponseWriter, r *http.Request
 		writeStoreError(w, err, "update mail server settings failed")
 		return
 	}
-	h.recordAudit(r.Context(), domain.AuditEvent{ActorType: "admin", Action: "mail_server_settings.update", TargetType: "system", TargetID: "mail-server", MetadataJSON: fmt.Sprintf(`{"hostname_mode":%q,"mail_hostname":%q,"sni_enabled":%t,"cloudflare_real_ip_enabled":%t}`, settings.HostnameMode, settings.MailHostname, settings.SNIEnabled, settings.CloudflareRealIPEnabled)})
+	h.recordAudit(r.Context(), domain.AuditEvent{ActorType: "admin", Action: "mail_server_settings.update", TargetType: "system", TargetID: "mail-server", MetadataJSON: fmt.Sprintf(`{"hostname_mode":%q,"mail_hostname":%q,"sni_enabled":%t,"tls_mode":%q,"force_https":%t,"cloudflare_real_ip_enabled":%t}`, settings.HostnameMode, settings.MailHostname, settings.SNIEnabled, settings.TLSMode, settings.ForceHTTPS, settings.CloudflareRealIPEnabled)})
 	writeJSON(w, http.StatusOK, settings)
 }
 

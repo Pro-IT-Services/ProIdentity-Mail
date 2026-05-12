@@ -34,6 +34,8 @@ func main() {
 			WebmailHostname: cfg.WebmailHostname,
 			PublicIPv4:      cfg.PublicIPv4,
 			PublicIPv6:      cfg.PublicIPv6,
+			TLSMode:         cfg.TLSMode,
+			ForceHTTPS:      cfg.ForceHTTPS,
 		})
 		store = sqlStore
 		limiter = session.NewSQLLoginLimiter(conn, "admin", session.Options{Penalties: session.AdminPenaltySchedule()})

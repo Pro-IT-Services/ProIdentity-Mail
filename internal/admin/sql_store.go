@@ -43,6 +43,8 @@ type DNSSettings struct {
 	WebmailHostname     string
 	PublicIPv4          string
 	PublicIPv6          string
+	TLSMode             string
+	ForceHTTPS          bool
 	HostnameMode        string
 	HeadTenantID        uint64
 	HeadDomainID        uint64
@@ -66,6 +68,8 @@ func (s SQLStore) WithDNSSettings(settings DNSSettings) SQLStore {
 		WebmailHostname:     normalizeDNSName(settings.WebmailHostname),
 		PublicIPv4:          strings.TrimSpace(settings.PublicIPv4),
 		PublicIPv6:          strings.TrimSpace(settings.PublicIPv6),
+		TLSMode:             normalizeProxyTLSMode(settings.TLSMode),
+		ForceHTTPS:          settings.ForceHTTPS,
 		HostnameMode:        normalizeHostnameMode(settings.HostnameMode),
 		HeadTenantID:        settings.HeadTenantID,
 		HeadDomainID:        settings.HeadDomainID,
@@ -1310,14 +1314,15 @@ func (s SQLStore) UpdateMailServerSettings(ctx context.Context, settings domain.
 	settings.PublicIPv6 = strings.TrimSpace(settings.PublicIPv6)
 	settings.HeadTenantID = cleanUintPtr(settings.HeadTenantID)
 	settings.HeadDomainID = cleanUintPtr(settings.HeadDomainID)
+	settings.TLSMode = normalizeProxyTLSMode(settings.TLSMode)
 	settings.DefaultLanguage = normalizeLanguageOrDefault(settings.DefaultLanguage)
 	if settings.HostnameMode == "shared" && settings.MailHostname == "" {
 		settings.MailHostname = effectiveMailHost("", s.dns.MailHostname)
 	}
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO mail_server_settings(id, hostname_mode, mail_hostname, head_tenant_id, head_domain_id, public_ipv4, public_ipv6, sni_enabled, default_language, mailbox_mfa_enabled, force_mailbox_mfa, cloudflare_real_ip_enabled)
-		VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON DUPLICATE KEY UPDATE hostname_mode = VALUES(hostname_mode), mail_hostname = VALUES(mail_hostname), head_tenant_id = VALUES(head_tenant_id), head_domain_id = VALUES(head_domain_id), public_ipv4 = VALUES(public_ipv4), public_ipv6 = VALUES(public_ipv6), sni_enabled = VALUES(sni_enabled), default_language = VALUES(default_language), mailbox_mfa_enabled = VALUES(mailbox_mfa_enabled), force_mailbox_mfa = VALUES(force_mailbox_mfa), cloudflare_real_ip_enabled = VALUES(cloudflare_real_ip_enabled)`,
+		INSERT INTO mail_server_settings(id, hostname_mode, mail_hostname, head_tenant_id, head_domain_id, public_ipv4, public_ipv6, sni_enabled, tls_mode, force_https, default_language, mailbox_mfa_enabled, force_mailbox_mfa, cloudflare_real_ip_enabled)
+		VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON DUPLICATE KEY UPDATE hostname_mode = VALUES(hostname_mode), mail_hostname = VALUES(mail_hostname), head_tenant_id = VALUES(head_tenant_id), head_domain_id = VALUES(head_domain_id), public_ipv4 = VALUES(public_ipv4), public_ipv6 = VALUES(public_ipv6), sni_enabled = VALUES(sni_enabled), tls_mode = VALUES(tls_mode), force_https = VALUES(force_https), default_language = VALUES(default_language), mailbox_mfa_enabled = VALUES(mailbox_mfa_enabled), force_mailbox_mfa = VALUES(force_mailbox_mfa), cloudflare_real_ip_enabled = VALUES(cloudflare_real_ip_enabled)`,
 		settings.HostnameMode,
 		settings.MailHostname,
 		uintPtrArg(settings.HeadTenantID),
@@ -1325,6 +1330,8 @@ func (s SQLStore) UpdateMailServerSettings(ctx context.Context, settings domain.
 		settings.PublicIPv4,
 		settings.PublicIPv6,
 		settings.SNIEnabled,
+		settings.TLSMode,
+		settings.ForceHTTPS,
 		settings.DefaultLanguage,
 		settings.MailboxMFAEnabled,
 		settings.ForceMailboxMFA,
@@ -1341,9 +1348,9 @@ func (s SQLStore) scanMailServerSettings(ctx context.Context) (domain.MailServer
 	var headTenant sql.NullInt64
 	var headDomain sql.NullInt64
 	err := s.db.QueryRowContext(ctx, `
-		SELECT hostname_mode, mail_hostname, head_tenant_id, head_domain_id, public_ipv4, public_ipv6, sni_enabled, COALESCE(default_language, 'en'), COALESCE(mailbox_mfa_enabled, 1), COALESCE(force_mailbox_mfa, 0), COALESCE(cloudflare_real_ip_enabled, 0)
+		SELECT hostname_mode, mail_hostname, head_tenant_id, head_domain_id, public_ipv4, public_ipv6, sni_enabled, COALESCE(tls_mode, 'system'), COALESCE(force_https, 1), COALESCE(default_language, 'en'), COALESCE(mailbox_mfa_enabled, 1), COALESCE(force_mailbox_mfa, 0), COALESCE(cloudflare_real_ip_enabled, 0)
 		FROM mail_server_settings
-		WHERE id = 1`).Scan(&settings.HostnameMode, &settings.MailHostname, &headTenant, &headDomain, &settings.PublicIPv4, &settings.PublicIPv6, &settings.SNIEnabled, &settings.DefaultLanguage, &settings.MailboxMFAEnabled, &settings.ForceMailboxMFA, &settings.CloudflareRealIPEnabled)
+		WHERE id = 1`).Scan(&settings.HostnameMode, &settings.MailHostname, &headTenant, &headDomain, &settings.PublicIPv4, &settings.PublicIPv6, &settings.SNIEnabled, &settings.TLSMode, &settings.ForceHTTPS, &settings.DefaultLanguage, &settings.MailboxMFAEnabled, &settings.ForceMailboxMFA, &settings.CloudflareRealIPEnabled)
 	if err != nil {
 		return domain.MailServerSettings{}, err
 	}
@@ -1357,6 +1364,7 @@ func (s SQLStore) scanMailServerSettings(ctx context.Context) (domain.MailServer
 	}
 	settings.HostnameMode = normalizeHostnameMode(settings.HostnameMode)
 	settings.MailHostname = normalizeDNSName(settings.MailHostname)
+	settings.TLSMode = normalizeProxyTLSMode(settings.TLSMode)
 	settings.DefaultLanguage = normalizeLanguageOrDefault(settings.DefaultLanguage)
 	return settings, nil
 }
@@ -1370,6 +1378,8 @@ func defaultMailServerSettings(settings DNSSettings) domain.MailServerSettings {
 		PublicIPv4:        strings.TrimSpace(settings.PublicIPv4),
 		PublicIPv6:        strings.TrimSpace(settings.PublicIPv6),
 		SNIEnabled:        settings.SNIEnabled,
+		TLSMode:           normalizeProxyTLSMode(settings.TLSMode),
+		ForceHTTPS:        settings.ForceHTTPS,
 		DefaultLanguage:   normalizeLanguageOrDefault("en"),
 		MailboxMFAEnabled: true,
 	}
@@ -2026,6 +2036,15 @@ func normalizeHostnameMode(value string) string {
 		return strings.ToLower(strings.TrimSpace(value))
 	default:
 		return "shared"
+	}
+}
+
+func normalizeProxyTLSMode(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "none", "behind-proxy", "letsencrypt-http", "letsencrypt-dns-cloudflare", "custom-cert":
+		return strings.ToLower(strings.TrimSpace(value))
+	default:
+		return "system"
 	}
 }
 

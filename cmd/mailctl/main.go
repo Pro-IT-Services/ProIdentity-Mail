@@ -207,6 +207,8 @@ func renderMailConfigToDir(cfg app.Config, targetDir string) {
 		WebmailHostname: cfg.WebmailHostname,
 		PublicIPv4:      cfg.PublicIPv4,
 		PublicIPv6:      cfg.PublicIPv6,
+		TLSMode:         cfg.TLSMode,
+		ForceHTTPS:      cfg.ForceHTTPS,
 	})
 	mailSettings, err := store.GetMailServerSettings(ctx)
 	if err != nil {
@@ -1061,7 +1063,7 @@ func runSyncProxy(cfg app.Config, args []string) {
 	commonPath := filepath.Join(*commonDir, "proxy-common.conf")
 	writeRenderedAtomic(commonPath, must(render.RenderNginxProxyCommon()))
 	chmodLiveFile(commonPath, 0644)
-	writeRenderedAtomic(*certScript, must(render.RenderCertbotScript(certbotRenderData(cfg))))
+	writeRenderedAtomic(*certScript, must(render.RenderCertbotScript(certbotRenderData(cfg, mailSettings))))
 	chmodLiveFile(*certScript, 0750)
 	chgrpIfExists(*certScript, "proidentity")
 	if *reload {
@@ -1450,7 +1452,7 @@ func writeProxyFiles(cfg app.Config, targetDir string) {
 	writeRendered(filepath.Join(targetDir, "proidentity-nginx.conf"), must(render.RenderNginxProxy(proxyRenderData(cfg, mailSettings))))
 	writeRendered(filepath.Join(targetDir, "proxy-common.conf"), must(render.RenderNginxProxyCommon()))
 	certPath := filepath.Join(targetDir, "issue-cert.sh")
-	writeRendered(certPath, must(render.RenderCertbotScript(certbotRenderData(cfg))))
+	writeRendered(certPath, must(render.RenderCertbotScript(certbotRenderData(cfg, mailSettings))))
 	if err := os.Chmod(certPath, 0750); err != nil {
 		log.Fatalf("chmod cert script: %v", err)
 	}
@@ -1458,7 +1460,7 @@ func writeProxyFiles(cfg app.Config, targetDir string) {
 
 func proxyRenderData(cfg app.Config, mailSettings domain.MailServerSettings) render.NginxProxyData {
 	return render.NginxProxyData{
-		TLSMode:                 cfg.TLSMode,
+		TLSMode:                 effectiveProxyTLSMode(cfg, mailSettings),
 		AdminHostname:           cfg.AdminHostname,
 		WebmailHostname:         cfg.WebmailHostname,
 		DAVHostname:             cfg.DAVHostname,
@@ -1468,11 +1470,26 @@ func proxyRenderData(cfg app.Config, mailSettings domain.MailServerSettings) ren
 		ACMEWebroot:             cfg.ACMEWebroot,
 		CertPath:                cfg.TLSCertPath,
 		KeyPath:                 cfg.TLSKeyPath,
-		ForceHTTPS:              cfg.ForceHTTPS,
+		ForceHTTPS:              effectiveProxyForceHTTPS(cfg, mailSettings),
 		TrustProxyHeaders:       cfg.TrustProxyHeaders,
 		TrustedProxyCIDRs:       cfg.TrustedProxyCIDRs,
 		CloudflareRealIPEnabled: mailSettings.CloudflareRealIPEnabled,
 	}
+}
+
+func effectiveProxyTLSMode(cfg app.Config, mailSettings domain.MailServerSettings) string {
+	mode := strings.ToLower(strings.TrimSpace(mailSettings.TLSMode))
+	if mode == "" || mode == "system" {
+		return cfg.TLSMode
+	}
+	return mode
+}
+
+func effectiveProxyForceHTTPS(cfg app.Config, mailSettings domain.MailServerSettings) bool {
+	if strings.TrimSpace(mailSettings.TLSMode) == "" {
+		return cfg.ForceHTTPS
+	}
+	return mailSettings.ForceHTTPS
 }
 
 func loadProxyMailServerSettings(cfg app.Config) domain.MailServerSettings {
@@ -1493,6 +1510,8 @@ func loadProxyMailServerSettings(cfg app.Config) domain.MailServerSettings {
 		WebmailHostname: cfg.WebmailHostname,
 		PublicIPv4:      cfg.PublicIPv4,
 		PublicIPv6:      cfg.PublicIPv6,
+		TLSMode:         cfg.TLSMode,
+		ForceHTTPS:      cfg.ForceHTTPS,
 	})
 	settings, err := store.GetMailServerSettings(ctx)
 	if err != nil {
@@ -1502,9 +1521,9 @@ func loadProxyMailServerSettings(cfg app.Config) domain.MailServerSettings {
 	return settings
 }
 
-func certbotRenderData(cfg app.Config) render.CertbotScriptData {
+func certbotRenderData(cfg app.Config, mailSettings domain.MailServerSettings) render.CertbotScriptData {
 	return render.CertbotScriptData{
-		TLSMode:                   cfg.TLSMode,
+		TLSMode:                   effectiveProxyTLSMode(cfg, mailSettings),
 		Hostnames:                 certHostnames(cfg),
 		ACMEWebroot:               cfg.ACMEWebroot,
 		CloudflareCredentialsFile: cfg.CloudflareCredentialsFile,

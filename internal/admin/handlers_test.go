@@ -179,6 +179,8 @@ func TestAdminIndexUsesMailServerBehaviorSettings(t *testing.T) {
 		[]byte("i18nCatalog"),
 		[]byte("translateUI"),
 		[]byte("Enable SNI certificate maps"),
+		[]byte("HTTPS and SSL"),
+		[]byte("Force HTTPS redirect"),
 		[]byte("Mailbox two-factor authentication"),
 		[]byte("Force mailbox 2FA setup"),
 	} {
@@ -2660,7 +2662,7 @@ func TestBuildDomainDNSHeadDomainModeAliasesOtherDomains(t *testing.T) {
 func TestMailServerSettingsEndpointPersistsBehavior(t *testing.T) {
 	store := &fakeStore{}
 	handler := NewRouter(store)
-	payload := `{"hostname_mode":"head-domain","mail_hostname":"mail.platform.test","head_tenant_id":11,"head_domain_id":22,"public_ipv4":"203.0.113.10","public_ipv6":"","sni_enabled":true,"default_language":"sk"}`
+	payload := `{"hostname_mode":"head-domain","mail_hostname":"mail.platform.test","head_tenant_id":11,"head_domain_id":22,"public_ipv4":"203.0.113.10","public_ipv6":"","sni_enabled":true,"tls_mode":"letsencrypt-http","force_https":true,"default_language":"sk"}`
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/mail-server-settings", strings.NewReader(payload))
 	rec := httptest.NewRecorder()
 
@@ -2671,6 +2673,9 @@ func TestMailServerSettingsEndpointPersistsBehavior(t *testing.T) {
 	}
 	if store.mailServerSettings.HostnameMode != "head-domain" || !store.mailServerSettings.SNIEnabled {
 		t.Fatalf("settings not persisted: %+v", store.mailServerSettings)
+	}
+	if store.mailServerSettings.TLSMode != "letsencrypt-http" || !store.mailServerSettings.ForceHTTPS {
+		t.Fatalf("tls settings not persisted: %+v", store.mailServerSettings)
 	}
 	if store.mailServerSettings.DefaultLanguage != "sk" {
 		t.Fatalf("default language = %q, want sk", store.mailServerSettings.DefaultLanguage)
@@ -3133,13 +3138,16 @@ func (s *fakeStore) ListTenantPolicies(ctx context.Context) ([]domain.TenantPoli
 
 func (s *fakeStore) GetMailServerSettings(ctx context.Context) (domain.MailServerSettings, error) {
 	if s.mailServerSettings.HostnameMode == "" {
-		return domain.MailServerSettings{HostnameMode: "shared", MailHostname: "mail.example.com", EffectiveHostname: "mail.example.com", DefaultLanguage: "en"}, nil
+		return domain.MailServerSettings{HostnameMode: "shared", MailHostname: "mail.example.com", TLSMode: "system", ForceHTTPS: true, EffectiveHostname: "mail.example.com", DefaultLanguage: "en"}, nil
 	}
 	return s.mailServerSettings, nil
 }
 
 func (s *fakeStore) UpdateMailServerSettings(ctx context.Context, settings domain.MailServerSettings) (domain.MailServerSettings, error) {
 	s.mailServerSettings = settings
+	if s.mailServerSettings.TLSMode == "" {
+		s.mailServerSettings.TLSMode = "system"
+	}
 	if s.mailServerSettings.DefaultLanguage == "" {
 		s.mailServerSettings.DefaultLanguage = "en"
 	}
