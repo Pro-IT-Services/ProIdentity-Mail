@@ -95,13 +95,43 @@ func runRotateAdminPassword(cfg app.Config) {
 	if password == "" {
 		password = randomHex(18)
 	}
-	envPath := os.Getenv("PROIDENTITY_ENV_FILE")
-	if envPath == "" {
-		envPath = "/etc/proidentity-mail/proidentity-mail.env"
+	envPaths := adminPasswordEnvPaths()
+	if len(envPaths) == 0 {
+		log.Fatal("no environment file available for admin password rotation")
 	}
+	for _, envPath := range envPaths {
+		if err := rotateAdminPasswordInEnvFile(envPath, password); err != nil {
+			log.Fatalf("rotate admin password in %s: %v", envPath, err)
+		}
+	}
+	fmt.Println("admin password rotated")
+	if os.Getenv("PROIDENTITY_PRINT_NEW_ADMIN_PASSWORD") == "1" {
+		fmt.Println(password)
+	}
+	_ = cfg
+}
+
+func adminPasswordEnvPaths() []string {
+	if envPath := strings.TrimSpace(os.Getenv("PROIDENTITY_ENV_FILE")); envPath != "" {
+		return []string{envPath}
+	}
+	candidates := []string{
+		"/etc/proidentity-mail/webadmin.env",
+		"/etc/proidentity-mail/proidentity-mail.env",
+	}
+	paths := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		if _, err := os.Stat(candidate); err == nil {
+			paths = append(paths, candidate)
+		}
+	}
+	return paths
+}
+
+func rotateAdminPasswordInEnvFile(envPath, password string) error {
 	data, err := os.ReadFile(envPath)
 	if err != nil {
-		log.Fatalf("read env file: %v", err)
+		return err
 	}
 	lines := strings.Split(string(data), "\n")
 	found := false
@@ -115,13 +145,9 @@ func runRotateAdminPassword(cfg app.Config) {
 		lines = append(lines, "PROIDENTITY_ADMIN_PASSWORD="+password)
 	}
 	if err := os.WriteFile(envPath, []byte(strings.Join(lines, "\n")), 0640); err != nil {
-		log.Fatalf("write env file: %v", err)
+		return err
 	}
-	fmt.Println("admin password rotated")
-	if os.Getenv("PROIDENTITY_PRINT_NEW_ADMIN_PASSWORD") == "1" {
-		fmt.Println(password)
-	}
-	_ = cfg
+	return nil
 }
 
 func randomHex(bytesCount int) string {
