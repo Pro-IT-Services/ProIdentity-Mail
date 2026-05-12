@@ -47,6 +47,7 @@ func (ExecRunner) Run(ctx context.Context, name string, args []string, options C
 type LiveRestoreOptions struct {
 	ArchivePath      string
 	StagingDir       string
+	EncryptionKey    []byte
 	Mappings         []LiveMapping
 	Permissions      []PermissionRule
 	DatabaseName     string
@@ -107,11 +108,11 @@ func RestoreLive(ctx context.Context, options LiveRestoreOptions) (LiveRestoreSu
 		defer cleanup()
 	}
 
-	summary, err := Verify(ctx, options.ArchivePath)
+	summary, err := VerifyWithKey(ctx, options.ArchivePath, options.EncryptionKey)
 	if err != nil {
 		return LiveRestoreSummary{}, err
 	}
-	if err := Restore(ctx, options.ArchivePath, stagingDir, RestoreOptions{Overwrite: true}); err != nil {
+	if err := RestoreWithKey(ctx, options.ArchivePath, stagingDir, RestoreOptions{Overwrite: true}, options.EncryptionKey); err != nil {
 		return LiveRestoreSummary{}, err
 	}
 	out := LiveRestoreSummary{Files: summary.Files, Bytes: summary.Bytes, Entries: summary.Entries, StagingDir: stagingDir}

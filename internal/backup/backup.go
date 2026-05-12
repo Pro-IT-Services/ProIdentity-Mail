@@ -4,7 +4,11 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -18,11 +22,14 @@ import (
 )
 
 const manifestPath = "proidentity-backup-manifest.json"
+const encryptedArchiveMagic = "PROIDENTITY-BACKUP-AESGCM-CHUNKED-V1\n"
+const encryptionChunkSize = 64 << 10
 
 type Options struct {
-	OutputPath string
-	Sources    []Source
-	Hostname   string
+	OutputPath    string
+	Sources       []Source
+	Hostname      string
+	EncryptionKey []byte
 }
 
 type Source struct {
@@ -62,6 +69,26 @@ func Create(ctx context.Context, options Options) (Manifest, error) {
 	if strings.TrimSpace(options.OutputPath) == "" {
 		return Manifest{}, errors.New("output path is required")
 	}
+	if len(options.EncryptionKey) > 0 {
+		temp, err := os.CreateTemp(filepath.Dir(options.OutputPath), ".proidentity-backup-plain-*")
+		if err != nil {
+			return Manifest{}, err
+		}
+		tempPath := temp.Name()
+		_ = temp.Close()
+		defer os.Remove(tempPath)
+		plainOptions := options
+		plainOptions.OutputPath = tempPath
+		plainOptions.EncryptionKey = nil
+		manifest, err := Create(ctx, plainOptions)
+		if err != nil {
+			return Manifest{}, err
+		}
+		if err := EncryptFile(tempPath, options.OutputPath, options.EncryptionKey); err != nil {
+			return Manifest{}, err
+		}
+		return manifest, nil
+	}
 	if err := os.MkdirAll(filepath.Dir(options.OutputPath), 0750); err != nil {
 		return Manifest{}, err
 	}
@@ -100,7 +127,11 @@ func Create(ctx context.Context, options Options) (Manifest, error) {
 }
 
 func Verify(ctx context.Context, archivePath string) (VerifySummary, error) {
-	manifest, files, err := readArchive(ctx, archivePath)
+	return VerifyWithKey(ctx, archivePath, nil)
+}
+
+func VerifyWithKey(ctx context.Context, archivePath string, encryptionKey []byte) (VerifySummary, error) {
+	manifest, files, err := readArchive(ctx, archivePath, encryptionKey)
 	if err != nil {
 		return VerifySummary{}, err
 	}
@@ -132,17 +163,22 @@ func Verify(ctx context.Context, archivePath string) (VerifySummary, error) {
 }
 
 func Restore(ctx context.Context, archivePath, targetRoot string, options RestoreOptions) error {
-	if _, err := Verify(ctx, archivePath); err != nil {
+	return RestoreWithKey(ctx, archivePath, targetRoot, options, nil)
+}
+
+func RestoreWithKey(ctx context.Context, archivePath, targetRoot string, options RestoreOptions, encryptionKey []byte) error {
+	if _, err := VerifyWithKey(ctx, archivePath, encryptionKey); err != nil {
 		return err
 	}
 	if strings.TrimSpace(targetRoot) == "" {
 		return errors.New("target root is required")
 	}
-	reader, err := os.Open(archivePath)
+	reader, cleanup, err := openArchive(ctx, archivePath, encryptionKey)
 	if err != nil {
 		return err
 	}
 	defer reader.Close()
+	defer cleanup()
 	gzipReader, err := gzip.NewReader(reader)
 	if err != nil {
 		return err
@@ -274,12 +310,13 @@ func addPath(tarWriter *tar.Writer, manifest *Manifest, source Source, path stri
 	return nil
 }
 
-func readArchive(ctx context.Context, archivePath string) (Manifest, []archiveFile, error) {
-	reader, err := os.Open(archivePath)
+func readArchive(ctx context.Context, archivePath string, encryptionKey []byte) (Manifest, []archiveFile, error) {
+	reader, cleanup, err := openArchive(ctx, archivePath, encryptionKey)
 	if err != nil {
 		return Manifest{}, nil, err
 	}
 	defer reader.Close()
+	defer cleanup()
 	gzipReader, err := gzip.NewReader(reader)
 	if err != nil {
 		return Manifest{}, nil, err
@@ -326,6 +363,176 @@ func readArchive(ctx context.Context, archivePath string) (Manifest, []archiveFi
 		return Manifest{}, nil, errors.New("manifest missing")
 	}
 	return manifest, files, nil
+}
+
+func EncryptFile(inputPath, outputPath string, encryptionKey []byte) error {
+	if len(encryptionKey) != 32 {
+		return errors.New("backup encryption key must be 32 bytes")
+	}
+	input, err := os.Open(inputPath)
+	if err != nil {
+		return err
+	}
+	defer input.Close()
+	if err := os.MkdirAll(filepath.Dir(outputPath), 0750); err != nil {
+		return err
+	}
+	output, err := os.OpenFile(outputPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600)
+	if err != nil {
+		return err
+	}
+	defer output.Close()
+	if _, err := output.Write([]byte(encryptedArchiveMagic)); err != nil {
+		return err
+	}
+	block, err := aes.NewCipher(encryptionKey)
+	if err != nil {
+		return err
+	}
+	aead, err := cipher.NewGCM(block)
+	if err != nil {
+		return err
+	}
+	buf := make([]byte, encryptionChunkSize)
+	for {
+		n, readErr := input.Read(buf)
+		if n > 0 {
+			nonce := make([]byte, aead.NonceSize())
+			if _, err := rand.Read(nonce); err != nil {
+				return err
+			}
+			ciphertext := aead.Seal(nil, nonce, buf[:n], nil)
+			if uint64(len(ciphertext)) > uint64(^uint32(0)) {
+				return errors.New("encrypted backup chunk too large")
+			}
+			if _, err := output.Write(nonce); err != nil {
+				return err
+			}
+			var size [4]byte
+			binary.BigEndian.PutUint32(size[:], uint32(len(ciphertext)))
+			if _, err := output.Write(size[:]); err != nil {
+				return err
+			}
+			if _, err := output.Write(ciphertext); err != nil {
+				return err
+			}
+		}
+		if readErr == io.EOF {
+			return nil
+		}
+		if readErr != nil {
+			return readErr
+		}
+	}
+}
+
+func openArchive(ctx context.Context, archivePath string, encryptionKey []byte) (*os.File, func(), error) {
+	reader, err := os.Open(archivePath)
+	if err != nil {
+		return nil, func() {}, err
+	}
+	encrypted, err := archiveIsEncrypted(reader)
+	if err != nil {
+		_ = reader.Close()
+		return nil, func() {}, err
+	}
+	if !encrypted {
+		if _, err := reader.Seek(0, io.SeekStart); err != nil {
+			_ = reader.Close()
+			return nil, func() {}, err
+		}
+		return reader, func() {}, nil
+	}
+	_ = reader.Close()
+	if len(encryptionKey) != 32 {
+		return nil, func() {}, errors.New("encrypted backup requires a 32-byte encryption key")
+	}
+	temp, err := os.CreateTemp("", "proidentity-backup-decrypted-*")
+	if err != nil {
+		return nil, func() {}, err
+	}
+	tempPath := temp.Name()
+	if err := decryptFile(ctx, archivePath, temp, encryptionKey); err != nil {
+		_ = temp.Close()
+		_ = os.Remove(tempPath)
+		return nil, func() {}, err
+	}
+	if _, err := temp.Seek(0, io.SeekStart); err != nil {
+		_ = temp.Close()
+		_ = os.Remove(tempPath)
+		return nil, func() {}, err
+	}
+	cleanup := func() {
+		_ = os.Remove(tempPath)
+	}
+	return temp, cleanup, nil
+}
+
+func archiveIsEncrypted(reader *os.File) (bool, error) {
+	magic := make([]byte, len(encryptedArchiveMagic))
+	n, err := io.ReadFull(reader, magic)
+	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) && !errors.Is(err, io.EOF) {
+		return false, err
+	}
+	return n == len(magic) && string(magic) == encryptedArchiveMagic, nil
+}
+
+func decryptFile(ctx context.Context, encryptedPath string, output *os.File, encryptionKey []byte) error {
+	input, err := os.Open(encryptedPath)
+	if err != nil {
+		return err
+	}
+	defer input.Close()
+	magic := make([]byte, len(encryptedArchiveMagic))
+	if _, err := io.ReadFull(input, magic); err != nil {
+		return err
+	}
+	if string(magic) != encryptedArchiveMagic {
+		return errors.New("backup archive is not encrypted with the expected format")
+	}
+	block, err := aes.NewCipher(encryptionKey)
+	if err != nil {
+		return err
+	}
+	aead, err := cipher.NewGCM(block)
+	if err != nil {
+		return err
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+		nonce := make([]byte, aead.NonceSize())
+		n, err := io.ReadFull(input, nonce)
+		if errors.Is(err, io.EOF) && n == 0 {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		var sizeBytes [4]byte
+		if _, err := io.ReadFull(input, sizeBytes[:]); err != nil {
+			return err
+		}
+		size := binary.BigEndian.Uint32(sizeBytes[:])
+		maxChunkSize := uint32(encryptionChunkSize + aead.Overhead())
+		if size == 0 || size > maxChunkSize {
+			return errors.New("invalid encrypted backup chunk size")
+		}
+		ciphertext := make([]byte, size)
+		if _, err := io.ReadFull(input, ciphertext); err != nil {
+			return err
+		}
+		plaintext, err := aead.Open(nil, nonce, ciphertext, nil)
+		if err != nil {
+			return errors.New("encrypted backup authentication failed")
+		}
+		if _, err := output.Write(plaintext); err != nil {
+			return err
+		}
+	}
 }
 
 func safeTarget(root, name string) (string, error) {

@@ -1,0 +1,27 @@
+[Unit]
+Description=Apply ProIdentity Mail live configuration
+Wants=mariadb.service redis-server.service nginx.service
+After=mariadb.service redis-server.service nginx.service
+
+[Service]
+Type=oneshot
+User=proidentity
+Group=proidentity
+EnvironmentFile=/etc/proidentity-mail/proidentity-mail.env
+ExecStart=/usr/bin/sudo -n -E /opt/proidentity-mail/bin/proidentity-rootctl config-apply
+ExecStart=/usr/bin/sudo -n -E /opt/proidentity-mail/bin/proidentity-rootctl sync-proxy
+UMask=0077
+NoNewPrivileges=false
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+PrivateDevices=true
+RestrictSUIDSGID=false
+LockPersonality=true
+RestrictRealtime=true
+RestrictNamespaces=true
+SystemCallArchitectures=native
+ReadWritePaths=/etc/proidentity-mail /etc/nginx /etc/postfix /etc/dovecot /etc/rspamd /var/lib/rspamd/dkim /var/spool/postfix /var/lib/proidentity-mail/acme /var/lib/proidentity-mail /run /tmp

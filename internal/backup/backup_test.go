@@ -41,6 +41,38 @@ func TestCreateAndVerifyArchiveWithManifestAndHashes(t *testing.T) {
 	}
 }
 
+func TestCreateVerifyAndRestoreEncryptedArchive(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "secret.txt"), []byte("sensitive mail and keys"), 0640); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	key := []byte("0123456789abcdef0123456789abcdef")
+	out := filepath.Join(t.TempDir(), "backup.tar.gz.enc")
+	if _, err := Create(context.Background(), Options{OutputPath: out, Sources: []Source{{Name: "config", Path: root}}, EncryptionKey: key}); err != nil {
+		t.Fatalf("Create encrypted returned error: %v", err)
+	}
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatalf("read encrypted archive: %v", err)
+	}
+	if strings.Contains(string(data), "sensitive mail and keys") {
+		t.Fatalf("encrypted archive leaked plaintext payload")
+	}
+	if _, err := Verify(context.Background(), out); err == nil {
+		t.Fatal("Verify without key accepted encrypted archive")
+	}
+	if _, err := VerifyWithKey(context.Background(), out, key); err != nil {
+		t.Fatalf("VerifyWithKey returned error: %v", err)
+	}
+	target := t.TempDir()
+	if err := RestoreWithKey(context.Background(), out, target, RestoreOptions{}, key); err != nil {
+		t.Fatalf("RestoreWithKey returned error: %v", err)
+	}
+	if got, err := os.ReadFile(filepath.Join(target, "config", "secret.txt")); err != nil || string(got) != "sensitive mail and keys" {
+		t.Fatalf("restored encrypted data mismatch got=%q err=%v", string(got), err)
+	}
+}
+
 func writeTestArchive(path string, files map[string]string) error {
 	out, err := os.Create(path)
 	if err != nil {

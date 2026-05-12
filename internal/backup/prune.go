@@ -87,10 +87,18 @@ func listBackupCandidates(dir string) ([]backupCandidate, error) {
 }
 
 func parseBackupName(name string) (time.Time, bool) {
-	if !strings.HasPrefix(name, "proidentity-mail-") || !strings.HasSuffix(name, ".tar.gz") {
+	if !strings.HasPrefix(name, "proidentity-mail-") {
 		return time.Time{}, false
 	}
-	stamp := strings.TrimSuffix(strings.TrimPrefix(name, "proidentity-mail-"), ".tar.gz")
+	stamp := strings.TrimPrefix(name, "proidentity-mail-")
+	switch {
+	case strings.HasSuffix(stamp, ".tar.gz.enc"):
+		stamp = strings.TrimSuffix(stamp, ".tar.gz.enc")
+	case strings.HasSuffix(stamp, ".tar.gz"):
+		stamp = strings.TrimSuffix(stamp, ".tar.gz")
+	default:
+		return time.Time{}, false
+	}
 	when, err := time.ParseInLocation(backupTimeLayout, stamp, time.UTC)
 	return when, err == nil
 }

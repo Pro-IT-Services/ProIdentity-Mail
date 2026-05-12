@@ -1,2 +1,5 @@
 .worktrees/
 bin/
+build/
+dist/
+.gocache/

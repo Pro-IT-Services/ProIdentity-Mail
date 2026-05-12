@@ -80,3 +80,19 @@ func TestPruneBackupsDryRunDoesNotDelete(t *testing.T) {
 		t.Fatalf("dry-run deleted backup: %v", err)
 	}
 }
+
+func TestPruneRecognizesEncryptedBackups(t *testing.T) {
+	root := t.TempDir()
+	old := time.Date(2025, 1, 1, 2, 15, 0, 0, time.UTC)
+	path := filepath.Join(root, "proidentity-mail-"+old.Format("20060102-150405")+".tar.gz.enc")
+	if err := os.WriteFile(path, []byte("encrypted"), 0600); err != nil {
+		t.Fatalf("write backup: %v", err)
+	}
+	result, err := Prune(root, RetentionPolicy{}, PruneOptions{Apply: true, Now: old.AddDate(0, 1, 0)})
+	if err != nil {
+		t.Fatalf("Prune returned error: %v", err)
+	}
+	if result.Scanned != 1 || result.Deleted != 1 {
+		t.Fatalf("encrypted backup prune result = %+v, want scanned/deleted 1", result)
+	}
+}

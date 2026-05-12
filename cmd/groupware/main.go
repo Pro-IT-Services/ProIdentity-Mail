@@ -9,6 +9,7 @@ import (
 	"proidentity-mail/internal/app"
 	"proidentity-mail/internal/db"
 	"proidentity-mail/internal/groupware"
+	"proidentity-mail/internal/session"
 )
 
 func main() {
@@ -22,9 +23,10 @@ func main() {
 	}
 	defer conn.Close()
 	store := groupware.NewSQLStore(conn)
+	limiter := session.NewSQLLoginLimiter(conn, "dav", session.Options{})
 	server := http.Server{
 		Addr:              cfg.GroupwareAddr,
-		Handler:           groupware.NewRouter(store),
+		Handler:           groupware.NewRouterWithLimiter(store, limiter),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	log.Printf("groupware listening on %s", cfg.GroupwareAddr)

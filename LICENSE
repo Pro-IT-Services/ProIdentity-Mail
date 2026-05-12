@@ -1,0 +1,91 @@
+ProIdentity Mail Dual License
+Version 1.0
+
+Copyright (c) 2026 ProIdentity and contributors.
+
+This repository is source-available under a dual licensing model. It is not
+offered as OSI-approved open source because commercial hosted service use is
+reserved for a separate commercial license.
+
+Definitions
+-----------
+
+"Licensed Work" means the ProIdentity Mail source code, binaries, scripts,
+documentation, and related files in this repository.
+
+"Commercial Hosted Service Use" means offering the Licensed Work, a modified
+version, or a substantially similar derivative as a paid or revenue-generating
+hosted service, SaaS product, managed mail service, cloud marketplace image,
+MSP offering, commercial email/groupware platform, or third-party hosting
+service.
+
+"Internal Use" means running the Licensed Work for your own personal systems,
+your own organization, your own employees, or your own customers when the
+Licensed Work itself is not offered as a paid hosted product or managed mail
+service.
+
+Community License Grant
+-----------------------
+
+Subject to the Commercial Hosted Service Use restriction below, you may use,
+copy, modify, distribute, and run the Licensed Work under the terms and
+conditions of the GNU Affero General Public License version 3 or, at your
+option, any later version, published by the Free Software Foundation.
+
+For the avoidance of doubt, the AGPL network source-code obligations apply to
+permitted network use. If you modify the Licensed Work and allow users to
+interact with it over a network, those users must be offered the corresponding
+source code for the version they use.
+
+Commercial Hosted Service Restriction
+-------------------------------------
+
+The Community License Grant does not allow Commercial Hosted Service Use.
+Commercial Hosted Service Use requires a separate written commercial license
+from ProIdentity before the service is offered to third parties.
+
+Examples that require a commercial license:
+
+- Selling hosted ProIdentity Mail accounts to third parties.
+- Running ProIdentity Mail as a paid SaaS or managed email service.
+- Publishing a paid cloud marketplace appliance or managed hosting image.
+- Offering ProIdentity Mail through an MSP, reseller, or hosting provider
+  package where the mail platform is part of the paid service.
+
+Examples that do not require a commercial license:
+
+- Personal self-hosting.
+- Internal company mail for your own organization.
+- Development, testing, security research, and evaluation.
+- Non-commercial community or educational self-hosting.
+
+Commercial License
+------------------
+
+Commercial Hosted Service Use, white-label hosting, OEM distribution, embedded
+commercial products, support bundles, and other commercial arrangements are
+available only under a separate written commercial license from ProIdentity.
+
+Contributions
+-------------
+
+Unless a separate written agreement says otherwise, contributions submitted to
+this project are licensed under this same dual license and include permission
+for ProIdentity to offer those contributions under commercial licenses.
+
+No Warranty
+-----------
+
+THE LICENSED WORK IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM,
+OUT OF, OR IN CONNECTION WITH THE LICENSED WORK OR THE USE OR OTHER DEALINGS
+IN THE LICENSED WORK.
+
+Legal Review
+------------
+
+This license text is intended to express the project owner's licensing intent.
+Have it reviewed by qualified counsel before public commercial launch.

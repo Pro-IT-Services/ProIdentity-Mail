@@ -6,8 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
+
+	"proidentity-mail/internal/security"
+	"proidentity-mail/internal/session"
 )
 
 var ErrNotFound = errors.New("not found")
@@ -28,16 +32,28 @@ type Store interface {
 	ListCalendarObjects(ctx context.Context, email string) ([]DAVObject, error)
 }
 
+type ProtocolPasswordVerifier interface {
+	VerifyProtocolPassword(ctx context.Context, email, password, protocol string) (bool, error)
+}
+
 type handler struct {
-	store Store
+	store   Store
+	limiter session.Limiter
 }
 
 func NewRouter(store Store) http.Handler {
-	h := handler{store: store}
+	return NewRouterWithLimiter(store, session.NewLoginLimiter(session.Options{}))
+}
+
+func NewRouterWithLimiter(store Store, limiter session.Limiter) http.Handler {
+	if limiter == nil {
+		limiter = session.NewLoginLimiter(session.Options{})
+	}
+	h := handler{store: store, limiter: limiter}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", health)
 	mux.HandleFunc("/dav/", h.dav)
-	return mux
+	return security.BrowserHeaders(security.LimitRequestBody(10 << 20)(mux))
 }
 
 func health(w http.ResponseWriter, r *http.Request) {
@@ -90,13 +106,89 @@ func (h handler) authorized(w http.ResponseWriter, r *http.Request) (string, boo
 		writeUnauthorized(w)
 		return "", false
 	}
-	email = strings.ToLower(email)
-	valid, err := h.store.VerifyUserPassword(r.Context(), email, password)
+	email = strings.ToLower(strings.TrimSpace(email))
+	keys := davLoginKeys("dav", email, r)
+	if session.AnyLocked(h.limiter, keys) {
+		http.Error(w, "login temporarily locked", http.StatusTooManyRequests)
+		return "", false
+	}
+	var valid bool
+	var err error
+	if verifier, ok := h.store.(ProtocolPasswordVerifier); ok {
+		valid, err = verifier.VerifyProtocolPassword(r.Context(), email, password, "dav")
+	} else {
+		valid, err = h.store.VerifyUserPassword(r.Context(), email, password)
+	}
 	if err != nil || !valid {
+		session.FailAll(h.limiter, keys)
 		writeUnauthorized(w)
 		return "", false
 	}
+	session.SuccessAll(h.limiter, keys)
 	return email, true
+}
+
+func davLoginKeys(service, subject string, r *http.Request) []string {
+	subject = strings.ToLower(strings.TrimSpace(subject))
+	host := strings.ToLower(strings.TrimSpace(requestClientIP(r)))
+	keys := []string{service + "|ip|" + host}
+	if subject != "" {
+		keys = append(keys, service+"|account|"+subject, service+"|pair|"+subject+"|"+host)
+	}
+	return keys
+}
+
+func requestClientIP(r *http.Request) string {
+	remote := requestRemoteIP(r.RemoteAddr)
+	if isLoopbackIP(remote) {
+		if ip := headerClientIP(r.Header.Get("X-Real-IP")); ip != "" {
+			return ip
+		}
+		if ip := forwardedForClientIP(r.Header.Get("X-Forwarded-For")); ip != "" {
+			return ip
+		}
+	}
+	return remote
+}
+
+func requestRemoteIP(remoteAddr string) string {
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		host = remoteAddr
+	}
+	return strings.TrimSpace(host)
+}
+
+func isLoopbackIP(value string) bool {
+	ip := net.ParseIP(strings.TrimSpace(value))
+	return ip != nil && ip.IsLoopback()
+}
+
+func headerClientIP(value string) string {
+	value = strings.Trim(strings.TrimSpace(value), `"`)
+	if value == "" {
+		return ""
+	}
+	if ip := net.ParseIP(value); ip != nil {
+		return ip.String()
+	}
+	host, _, err := net.SplitHostPort(value)
+	if err == nil {
+		if ip := net.ParseIP(strings.Trim(host, "[]")); ip != nil {
+			return ip.String()
+		}
+	}
+	return ""
+}
+
+func forwardedForClientIP(value string) string {
+	parts := strings.Split(value, ",")
+	for i := len(parts) - 1; i >= 0; i-- {
+		if ip := headerClientIP(parts[i]); ip != "" {
+			return ip
+		}
+	}
+	return ""
 }
 
 func writeUnauthorized(w http.ResponseWriter) {

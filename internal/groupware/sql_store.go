@@ -37,6 +37,57 @@ func (s SQLStore) VerifyUserPassword(ctx context.Context, email, password string
 	return security.VerifyPassword(hash, password), nil
 }
 
+func (s SQLStore) VerifyProtocolPassword(ctx context.Context, email, password, protocol string) (bool, error) {
+	protocol = normalizeProtocol(protocol)
+	if protocol == "" {
+		return false, nil
+	}
+	email = strings.ToLower(strings.TrimSpace(email))
+	var userID uint64
+	var hash string
+	var forceMFA bool
+	var totpEnabled bool
+	err := s.db.QueryRowContext(ctx, `
+		SELECT u.id, u.password_hash, COALESCE(ms.force_mailbox_mfa, 0), COALESCE(mfa.totp_enabled, 0)
+		FROM users u
+		JOIN domains d ON d.id = u.primary_domain_id
+		LEFT JOIN mail_server_settings ms ON ms.id = 1
+		LEFT JOIN user_mfa_settings mfa ON mfa.user_id = u.id
+		WHERE CONCAT(u.local_part, '@', d.name) = ?
+		  AND u.mailbox_type = 'user'
+		  AND u.status = 'active'
+		  AND d.status IN ('pending', 'active')
+		LIMIT 1`, email).Scan(&userID, &hash, &forceMFA, &totpEnabled)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if !forceMFA && !totpEnabled && security.VerifyPassword(hash, password) {
+		return true, nil
+	}
+	fingerprint := sha256.Sum256([]byte(password))
+	var id uint64
+	var protocols string
+	err = s.db.QueryRowContext(ctx, `
+		SELECT id, protocols
+		FROM user_app_passwords
+		WHERE user_id = ? AND secret_sha256 = ? AND status = 'active'
+		LIMIT 1`, userID, hex.EncodeToString(fingerprint[:])).Scan(&id, &protocols)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if !protocolListAllows(protocols, protocol) {
+		return false, nil
+	}
+	_, _ = s.db.ExecContext(ctx, `UPDATE user_app_passwords SET last_used_at = UTC_TIMESTAMP(), last_used_protocol = ? WHERE id = ?`, protocol, id)
+	return true, nil
+}
+
 func (s SQLStore) PutContact(ctx context.Context, email, href string, body []byte) (DAVObject, error) {
 	bookID, err := s.ensureAddressBook(ctx, email)
 	if err != nil {
@@ -228,4 +279,24 @@ func valueFromLine(text, name string) string {
 		}
 	}
 	return ""
+}
+
+func normalizeProtocol(protocol string) string {
+	protocol = strings.ToLower(strings.TrimSpace(protocol))
+	switch protocol {
+	case "carddav", "caldav", "groupware":
+		return "dav"
+	default:
+		return protocol
+	}
+}
+
+func protocolListAllows(protocols, protocol string) bool {
+	protocol = normalizeProtocol(protocol)
+	for _, candidate := range strings.Split(protocols, ",") {
+		if normalizeProtocol(candidate) == protocol {
+			return true
+		}
+	}
+	return false
 }

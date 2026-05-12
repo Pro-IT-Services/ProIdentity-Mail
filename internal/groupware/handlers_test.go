@@ -5,6 +5,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -89,6 +90,51 @@ func TestPropfindRejectsInvalidBasicAuth(t *testing.T) {
 
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestDAVAuthRecordsLimiterFailuresWithRealClientIP(t *testing.T) {
+	limiter := &recordingLimiter{}
+	handler := NewRouterWithLimiter(&fakeStore{}, limiter)
+	req := httptest.NewRequest("PROPFIND", "/dav/principals/marko@example.com/", nil)
+	req.RemoteAddr = "127.0.0.1:38123"
+	req.Header.Set("X-Real-IP", "203.0.113.45")
+	req.SetBasicAuth("Marko@Example.com", "wrong")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+	for _, want := range []string{
+		"dav|ip|203.0.113.45",
+		"dav|account|marko@example.com",
+		"dav|pair|marko@example.com|203.0.113.45",
+	} {
+		if !slices.Contains(limiter.failed, want) {
+			t.Fatalf("limiter failures missing %q: %+v", want, limiter.failed)
+		}
+	}
+}
+
+func TestDAVAuthStopsWhenLimiterLocked(t *testing.T) {
+	limiter := &recordingLimiter{locked: map[string]bool{"dav|ip|203.0.113.45": true}}
+	store := &fakeStore{valid: true}
+	handler := NewRouterWithLimiter(store, limiter)
+	req := httptest.NewRequest("PROPFIND", "/dav/principals/marko@example.com/", nil)
+	req.RemoteAddr = "127.0.0.1:38123"
+	req.Header.Set("X-Real-IP", "203.0.113.45")
+	req.SetBasicAuth("marko@example.com", "secret123456")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusTooManyRequests)
+	}
+	if store.authCalls != 0 {
+		t.Fatalf("password verifier should not run while locked, got %d calls", store.authCalls)
 	}
 }
 
@@ -213,13 +259,33 @@ func TestReportListsAddressBookObjects(t *testing.T) {
 }
 
 type fakeStore struct {
-	valid    bool
-	contacts map[string]DAVObject
-	events   map[string]DAVObject
+	valid     bool
+	authCalls int
+	contacts  map[string]DAVObject
+	events    map[string]DAVObject
 }
 
 func (s *fakeStore) VerifyUserPassword(ctx context.Context, email, password string) (bool, error) {
+	s.authCalls++
 	return s.valid && email == "marko@example.com" && password == "secret123456", nil
+}
+
+type recordingLimiter struct {
+	locked    map[string]bool
+	failed    []string
+	succeeded []string
+}
+
+func (l *recordingLimiter) Locked(key string) bool {
+	return l.locked[key]
+}
+
+func (l *recordingLimiter) Fail(key string) {
+	l.failed = append(l.failed, key)
+}
+
+func (l *recordingLimiter) Success(key string) {
+	l.succeeded = append(l.succeeded, key)
 }
 
 func (s *fakeStore) PutContact(ctx context.Context, email, href string, body []byte) (DAVObject, error) {
