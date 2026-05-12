@@ -52,7 +52,7 @@ chmod +x /tmp/install-proidentity-mail.sh
 
 sudo /tmp/install-proidentity-mail.sh \
   --github-repo Pro-IT-Services/ProIdentity-Mail \
-  --version v0.1.1 \
+  --version v0.2.0 \
   -- \
   --public-ipv4 203.0.113.10 \
   --mail-hostname mail.example.com \
@@ -77,7 +77,7 @@ You can also install from a direct archive URL:
 
 ```bash
 sudo /tmp/install-proidentity-mail.sh \
-  --release-url https://example.com/proidentity-mail_v0.1.1_linux_x64.tar.gz \
+  --release-url https://example.com/proidentity-mail_v0.2.0_linux_x64.tar.gz \
   --checksum-url https://example.com/SHA256SUMS \
   -- \
   --mail-hostname mail.example.com \
@@ -87,11 +87,11 @@ sudo /tmp/install-proidentity-mail.sh \
 
 ## Building Release Artifacts
 
-Release artifacts are created by GitHub Actions when a tag such as `v0.1.1` is
+Release artifacts are created by GitHub Actions when a tag such as `v0.2.0` is
 pushed. Locally, you can create the same archives with:
 
 ```bash
-bash scripts/build-release.sh v0.1.1
+bash scripts/build-release.sh v0.2.0
 ```
 
 This produces Linux archives for:

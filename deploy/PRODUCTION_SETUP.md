@@ -49,7 +49,7 @@ chmod +x /tmp/install-proidentity-mail.sh
 
 sudo /tmp/install-proidentity-mail.sh \
   --github-repo Pro-IT-Services/ProIdentity-Mail \
-  --version v0.1.1 \
+  --version v0.2.0 \
   -- \
   --public-ipv4 203.0.113.10 \
   --mail-hostname mail.example.com \

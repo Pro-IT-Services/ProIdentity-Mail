@@ -26,7 +26,7 @@ Download options:
   --github-base-url URL      Default: https://github.com
   --gitlab-project-id ID     GitLab numeric project ID for Generic Package Registry downloads
   --gitlab-base-url URL      Default: https://gitlab.com
-  --version VERSION          Release tag/version, for example v0.1.1
+  --version VERSION          Release tag/version, for example v0.2.0
   --target TARGET            x64, x86, arm, or arm64. Auto-detected when omitted.
   --work-dir PATH            Default: /tmp/proidentity-release-install
   -h, --help
@@ -40,7 +40,7 @@ systemd units, starts services, and generates missing secrets.
 Example:
   bash install-from-release.sh \
     --github-repo Pro-IT-Services/ProIdentity-Mail \
-    --version v0.1.1 \
+    --version v0.2.0 \
     -- \
     --public-ipv4 203.0.113.10 \
     --mail-hostname mail.example.com \
