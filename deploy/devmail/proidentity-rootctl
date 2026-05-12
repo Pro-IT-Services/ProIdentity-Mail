@@ -1,0 +1,27 @@
+#!/bin/sh
+set -eu
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+
+case "${1:-}" in
+  backup)
+    exec /opt/proidentity-mail/bin/mailctl backup \
+      --output-dir "${PROIDENTITY_BACKUP_DIR:-/var/backups/proidentity-mail}" \
+      --prune-after \
+      --keep-daily "${PROIDENTITY_BACKUP_KEEP_DAILY:-7}" \
+      --keep-weekly "${PROIDENTITY_BACKUP_KEEP_WEEKLY:-4}" \
+      --keep-monthly "${PROIDENTITY_BACKUP_KEEP_MONTHLY:-12}"
+    ;;
+  tls-worker)
+    exec /opt/proidentity-mail/bin/mailctl process-tls-jobs --limit 3 --apply-config=true
+    ;;
+  config-apply)
+    exec /opt/proidentity-mail/bin/apply-mail-config
+    ;;
+  sync-proxy)
+    exec /opt/proidentity-mail/bin/mailctl sync-proxy --reload
+    ;;
+  *)
+    echo "unsupported proidentity-rootctl command" >&2
+    exit 64
+    ;;
+esac

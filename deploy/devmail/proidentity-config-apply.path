@@ -1,0 +1,9 @@
+[Unit]
+Description=Watch ProIdentity Mail config apply requests
+
+[Path]
+PathChanged=/etc/proidentity-mail/apply-request
+Unit=proidentity-config-apply.service
+
+[Install]
+WantedBy=multi-user.target
