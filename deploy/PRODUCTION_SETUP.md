@@ -12,10 +12,26 @@ bootstrap script.
 - Webmail/DAV hostname used: `webmail.example.com`
 - Initial TLS mode: `none`
 
-`TLS_MODE=none` was used because the visible DNS records for the ProIdentity
-hostnames were Cloudflare proxy addresses, not direct server A records.
-The server is ready to switch later to `letsencrypt-dns-cloudflare` or
-`custom-cert` after DNS/API credentials are configured.
+`TLS_MODE=none` is useful for first boot, lab installs, or when TLS is
+terminated by an upstream proxy. Direct public deployments can use
+`letsencrypt-http` when DNS points straight to this server and ports 80/443 are
+reachable. Deployments behind Cloudflare proxy or another front proxy should use
+`letsencrypt-dns-cloudflare`, `behind-proxy`, or `custom-cert` depending on who
+owns the public certificate.
+
+## TLS Modes
+
+- `none`: HTTP only. Good for first boot, internal testing, or temporary setup.
+- `behind-proxy`: HTTPS is handled by an upstream proxy. Internal Nginx serves
+  the app and trusts configured proxy headers when enabled.
+- `letsencrypt-http`: uses Let's Encrypt HTTP-01 through local Nginx. Use this
+  when public A/AAAA records resolve directly to the server public IP and port
+  80 reaches this server.
+- `letsencrypt-dns-cloudflare`: uses Let's Encrypt DNS-01 with a Cloudflare API
+  token. Use this when Cloudflare proxy is enabled, the server is behind another
+  proxy, or HTTP-01 cannot reliably reach the origin.
+- `custom-cert`: installs an existing certificate/key pair and applies it to
+  web HTTPS plus Postfix/Dovecot TLS inventory.
 
 ## Build Steps
 

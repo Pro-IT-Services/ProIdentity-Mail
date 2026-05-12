@@ -68,6 +68,11 @@ All omitted passwords, database credentials, auth tokens, nonces, and backup
 encryption keys are generated automatically and written to the root-only
 install summary on the server.
 
+TLS can be enabled during install with `--tls-mode letsencrypt-http` when the
+public DNS records point directly to the server and port 80 is reachable. Use
+`--tls-mode letsencrypt-dns-cloudflare` for Cloudflare DNS-01 automation, or
+`--tls-mode custom-cert` to install an existing certificate and key.
+
 You can also install from a direct archive URL:
 
 ```bash
