@@ -375,6 +375,8 @@ func TestPublicReleaseLicenseAndBinaryInstallArtifacts(t *testing.T) {
 		},
 		"BINARY_RELEASE_INSTALL.md": {
 			"without compiling Go code on the server",
+			"installs packages",
+			"proidentity-production-setup.sh",
 			"proidentity-mail_<version>_linux_arm64.tar.gz",
 			"--github-repo Pro-IT-Services/ProIdentity-Mail",
 		},
@@ -406,8 +408,11 @@ func TestPublicReleaseLicenseAndBinaryInstallArtifacts(t *testing.T) {
 			"--gitlab-project-id ID",
 			"--release-url URL",
 			"detect_target",
+			"require_root",
+			"must be run as root",
 			"${GITHUB_REPO}/releases/download/${VERSION}",
 			"proidentity-production-setup.sh\" --artifact-dir",
+			"will install packages and configure the full server",
 		},
 	} {
 		bytes, err := os.ReadFile(path)
@@ -428,6 +433,28 @@ func TestPublicReleaseLicenseAndBinaryInstallArtifacts(t *testing.T) {
 	}
 	if strings.Contains(string(installerBytes), "go build") {
 		t.Fatalf("binary release installer must not compile on the target server")
+	}
+
+	setupBytes, err := os.ReadFile("proidentity-production-setup.sh")
+	if err != nil {
+		t.Fatalf("read proidentity-production-setup.sh: %v", err)
+	}
+	setup := string(setupBytes)
+	for _, want := range []string{
+		"install_packages",
+		"apt-get update",
+		"apt-get install -y",
+		"mariadb-server",
+		"postfix",
+		"dovecot-imapd",
+		"rspamd",
+		"clamav-daemon",
+		"nginx",
+		"unbound",
+	} {
+		if !strings.Contains(setup, want) {
+			t.Fatalf("release bootstrap missing package/setup marker %s", want)
+		}
 	}
 }
 

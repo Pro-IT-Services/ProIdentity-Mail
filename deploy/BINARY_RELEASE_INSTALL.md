@@ -3,6 +3,12 @@
 Use this path when the target server should install ProIdentity Mail from a
 published binary release without compiling Go code on the server.
 
+`install-from-release.sh` is the release downloader and launcher. After it
+downloads and extracts the archive, it runs `proidentity-production-setup.sh`;
+that bootstrap script installs packages, creates users, configures MariaDB,
+Postfix, Dovecot, Rspamd, ClamAV, Redis, Unbound, Nginx, writes systemd units,
+starts services, and generates missing secrets.
+
 ## Release Archives
 
 GitHub Actions and GitLab CI create these archives when a version tag is pushed:

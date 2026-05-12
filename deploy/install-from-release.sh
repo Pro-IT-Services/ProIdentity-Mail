@@ -32,6 +32,10 @@ Download options:
   -h, --help
 
 Any argument after -- is passed to proidentity-production-setup.sh.
+The release installer is a wrapper: it downloads/extracts the release archive,
+then runs proidentity-production-setup.sh, which installs OS packages, creates
+service users, configures MariaDB/Postfix/Dovecot/Rspamd/ClamAV/Nginx, writes
+systemd units, starts services, and generates missing secrets.
 
 Example:
   bash install-from-release.sh \
@@ -44,6 +48,14 @@ Example:
     --webmail-hostname webmail.example.com \
     --tls-mode letsencrypt-dns-cloudflare
 USAGE
+}
+
+require_root() {
+  if [[ "$(id -u)" -ne 0 ]]; then
+    echo "install-from-release.sh must be run as root because the bootstrap installs packages and writes system configuration." >&2
+    echo "Run it with sudo, for example: sudo /tmp/install-proidentity-mail.sh ..." >&2
+    exit 1
+  fi
 }
 
 arg_value() {
@@ -129,6 +141,8 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
+require_root
+
 TARGET="${TARGET:-$(detect_target)}"
 case "${TARGET}" in
   x64|x86|arm|arm64) ;;
@@ -198,4 +212,5 @@ for required in webadmin webmail groupware mailctl apply-mail-config proidentity
 done
 
 echo "Running ProIdentity Mail setup from binary release"
+echo "The extracted proidentity-production-setup.sh will install packages and configure the full server."
 exec bash "${WORK_DIR}/artifact/proidentity-production-setup.sh" --artifact-dir "${WORK_DIR}/artifact" "${SETUP_ARGS[@]}"

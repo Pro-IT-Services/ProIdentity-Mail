@@ -38,6 +38,9 @@ owns the public certificate.
 Use this path for normal server setup. The target server downloads the published
 release archive, verifies checksums when available, and runs the same full
 bootstrap script without compiling Go code on the server.
+The release wrapper itself only downloads and extracts the archive; the
+extracted `proidentity-production-setup.sh` performs the package installation
+and full server configuration.
 
 ```bash
 curl -fsSL https://github.com/Pro-IT-Services/ProIdentity-Mail/raw/main/deploy/install-from-release.sh \
