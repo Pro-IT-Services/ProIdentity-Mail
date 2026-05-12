@@ -1434,7 +1434,7 @@ const adminIndexHTML = `<!doctype html>
         "<label>Server public IPv4<input name=\"public_ipv4\" value=\"" + esc(settings.public_ipv4 || "") + "\" placeholder=\"176.107.29.40\"></label>" +
         "<label>Server public IPv6<input name=\"public_ipv6\" value=\"" + esc(settings.public_ipv6 || "") + "\" placeholder=\"Optional IPv6\"></label>" +
         "<label class=\"full\"><span class=\"checkbox-line\"><input name=\"sni_enabled\" type=\"checkbox\" " + checked(settings.sni_enabled) + "> Enable SNI certificate maps for SMTP, IMAP, and POP</span></label>" +
-        "<div class=\"step full\"><div class=\"step-title\"><strong>HTTPS and SSL</strong>" + badge(settings.tls_mode || "system") + "</div><p class=\"muted small\">Choose how the internal Nginx proxy serves admin, webmail, DAV, autoconfig, and autodiscover. Use disabled for plain HTTP only, behind-proxy when another TLS proxy is in front, or a managed/custom certificate mode for local HTTPS.</p><label>SSL / TLS mode<select name=\"tls_mode\"><option value=\"system\" " + selected(settings.tls_mode || "system", "system") + ">Use setup default</option><option value=\"none\" " + selected(settings.tls_mode, "none") + ">Disabled, HTTP only</option><option value=\"behind-proxy\" " + selected(settings.tls_mode, "behind-proxy") + ">Behind external HTTPS proxy</option><option value=\"letsencrypt-http\" " + selected(settings.tls_mode, "letsencrypt-http") + ">Let's Encrypt HTTP challenge</option><option value=\"letsencrypt-dns-cloudflare\" " + selected(settings.tls_mode, "letsencrypt-dns-cloudflare") + ">Let's Encrypt Cloudflare DNS challenge</option><option value=\"custom-cert\" " + selected(settings.tls_mode, "custom-cert") + ">Custom or existing certificate</option></select></label><label>Existing certificate<select name=\"https_certificate_id\">" + certificateOptions(settings.https_certificate_id) + "</select></label><label class=\"checkbox-line\"><input name=\"force_https\" type=\"checkbox\" " + checked(settings.force_https !== false) + "> Force HTTPS redirect when local TLS is enabled</label><p class=\"muted small\">The selected certificate is used when SSL / TLS mode is set to Custom or existing certificate. Leave it empty to use the certificate paths from setup.</p></div>" +
+        "<div class=\"step full\"><div class=\"step-title\"><strong>HTTPS and SSL</strong>" + badge(settings.tls_mode || "system") + "</div><p class=\"muted small\">Choose how the internal Nginx proxy serves admin, webmail, DAV, autoconfig, and autodiscover. Use disabled for plain HTTP only, behind-proxy when another TLS proxy is in front, or a managed/custom certificate mode for local HTTPS.</p><label>SSL / TLS mode<select name=\"tls_mode\"><option value=\"system\" " + selected(settings.tls_mode || "system", "system") + ">Use setup default</option><option value=\"none\" " + selected(settings.tls_mode, "none") + ">Disabled, HTTP only</option><option value=\"behind-proxy\" " + selected(settings.tls_mode, "behind-proxy") + ">Behind external HTTPS proxy</option><option value=\"letsencrypt-http\" " + selected(settings.tls_mode, "letsencrypt-http") + ">Let's Encrypt HTTP challenge</option><option value=\"letsencrypt-dns-cloudflare\" " + selected(settings.tls_mode, "letsencrypt-dns-cloudflare") + ">Let's Encrypt Cloudflare DNS challenge</option><option value=\"custom-cert\" " + selected(settings.tls_mode, "custom-cert") + ">Custom or existing certificate</option></select></label><label>Existing certificate<select name=\"https_certificate_id\">" + certificateOptions(settings.https_certificate_id) + "</select></label><label class=\"checkbox-line\"><input name=\"force_https\" type=\"checkbox\" " + checked(settings.force_https !== false) + "> Force HTTPS redirect when local TLS is enabled</label><p class=\"muted small\">The selected certificate is used when SSL / TLS mode is set to Custom or existing certificate. The dropdown shows every hostname included in each certificate. Leave it empty to use the certificate paths from setup.</p></div>" +
         "<div class=\"step full\"><div class=\"step-title\"><strong>Real client IP</strong>" + badge(settings.cloudflare_real_ip_enabled ? "Cloudflare" : "direct/proxy") + "</div><p class=\"muted small\">Enable this when public traffic reaches the internal Nginx through Cloudflare. Nginx will trust only Cloudflare source ranges and will pass the visitor IP to admin, webmail, rate limits, and ProIdentity push context.</p><label class=\"checkbox-line\"><input name=\"cloudflare_real_ip_enabled\" type=\"checkbox\" " + checked(settings.cloudflare_real_ip_enabled) + "> Behind Cloudflare proxy, use CF-Connecting-IP</label></div>" +
         "<div class=\"step full\"><div class=\"step-title\"><strong>Mailbox two-factor authentication</strong>" + badge(settings.force_mailbox_mfa ? "forced" : (settings.mailbox_mfa_enabled === false ? "disabled" : "available")) + "</div><p class=\"muted small\">When force is enabled, webmail asks users to set up 2FA after the password step. IMAP, SMTP, POP3, CalDAV, and CardDAV use app passwords.</p><label class=\"checkbox-line\"><input name=\"mailbox_mfa_enabled\" type=\"checkbox\" " + checked(settings.mailbox_mfa_enabled !== false) + "> Enable mailbox 2FA setup</label><label class=\"checkbox-line\"><input name=\"force_mailbox_mfa\" type=\"checkbox\" " + checked(settings.force_mailbox_mfa) + "> Force mailbox 2FA setup for users</label></div>" +
         "<div class=\"step full\"><div class=\"step-title\"><strong>DNS behavior</strong>" + badge(settings.effective_hostname || "pending") + "</div><p class=\"muted small\">Shared mode publishes MX to the canonical hostname and aliases mail.domain to it. Head-domain mode uses mail.head-domain as the canonical host. Per-domain mode publishes mail.domain A/AAAA records for every domain and should be paired with SNI certificates.</p></div>" +
@@ -1442,12 +1442,27 @@ const adminIndexHTML = `<!doctype html>
     }
     function certificateOptions(current) {
       const rows = (state.tlsCertificates || []).map(item => {
-        const name = item.common_name || (item.sans || [])[0] || item.domain_name || ("certificate " + item.id);
-        const suffix = [item.domain_name, item.status, item.days_remaining ? item.days_remaining + " days" : ""].filter(Boolean).join(" · ");
-        return "<option value=\"" + esc(item.id) + "\" " + selected(item.id, current) + ">" + esc(name + (suffix ? " (" + suffix + ")" : "")) + "</option>";
+        const names = uniqueCertificateNames(item);
+        const name = item.common_name || names[0] || item.domain_name || ("certificate " + item.id);
+        const coverage = names.length ? names.join(", ") : "no hostnames recorded";
+        const suffix = [item.status, item.days_remaining ? item.days_remaining + " days" : ""].filter(Boolean).join(" · ");
+        return "<option value=\"" + esc(item.id) + "\" " + selected(item.id, current) + ">" + esc(name + " - " + coverage + (suffix ? " (" + suffix + ")" : "")) + "</option>";
       });
       rows.unshift("<option value=\"\" " + selected("", current || "") + ">Use setup certificate paths</option>");
       return rows.join("");
+    }
+    function uniqueCertificateNames(item) {
+      const seen = new Set();
+      const names = [];
+      [item.common_name, ...(item.sans || []), item.domain_name].forEach(value => {
+        value = String(value || "").trim();
+        const key = value.toLowerCase();
+        if (value && !seen.has(key)) {
+          seen.add(key);
+          names.push(value);
+        }
+      });
+      return names;
     }
     function table(headings, rows, emptyText) {
       return "<div class=\"table-wrap\"><table><thead><tr>" + headings.map(h => "<th>" + esc(h) + "</th>").join("") + "</tr></thead><tbody>" + rows.join("") + emptyRows(rows, emptyText) + "</tbody></table></div>";
@@ -1958,12 +1973,14 @@ const adminIndexHTML = `<!doctype html>
         default_language: data.default_language || "en"
       };
       state.mailSettings = await api("/api/v1/mail-server-settings", {method: "PUT", body: JSON.stringify(payload)});
+      const savedSettings = state.mailSettings || {};
       applyLanguage(state.mailSettings.default_language || payload.default_language || "en");
       state.dns = null;
       state.dnsCloudflare = null;
       state.domainTLS = null;
-      await refresh();
-      showStatus("Mail server behavior saved");
+      state.configApplyStatus = savedSettings.config_apply_error ? "Mail behavior saved, but live config reload could not be queued: " + savedSettings.config_apply_error : (savedSettings.config_apply_queued ? "Mail behavior saved. Live config reload queued; the root service is syncing Nginx and mail config." : "");
+      await refresh({keepApplyStatus: true});
+      showStatus(savedSettings.config_apply_error ? state.configApplyStatus : (savedSettings.config_apply_queued ? "Mail behavior saved and live reload queued" : "Mail server behavior saved"), !!savedSettings.config_apply_error);
     }
     async function startTOTPEnrollment() {
       state.totpEnrollment = await api("/api/v1/admin-mfa/totp/enroll", {method: "POST", body: JSON.stringify({})});

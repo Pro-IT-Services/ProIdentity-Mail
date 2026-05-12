@@ -1074,7 +1074,7 @@ func runSyncProxy(cfg app.Config, args []string) {
 			log.Fatalf("reload nginx: %v", err)
 		}
 	}
-	fmt.Printf("synced proxy config nginx=%s tls_mode=%s\n", *nginxConf, cfg.TLSMode)
+	fmt.Printf("synced proxy config nginx=%s tls_mode=%s\n", *nginxConf, effectiveProxyTLSMode(cfg, mailSettings))
 }
 
 func runConfigDrift(cfg app.Config, args []string) {

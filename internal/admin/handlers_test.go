@@ -2663,7 +2663,8 @@ func TestBuildDomainDNSHeadDomainModeAliasesOtherDomains(t *testing.T) {
 
 func TestMailServerSettingsEndpointPersistsBehavior(t *testing.T) {
 	store := &fakeStore{}
-	handler := NewRouter(store)
+	marker := filepath.Join(t.TempDir(), "apply-request")
+	handler := NewRouter(store, AuthConfig{System: SystemConfig{ConfigApplyRequestPath: marker}})
 	payload := `{"hostname_mode":"head-domain","mail_hostname":"mail.platform.test","head_tenant_id":11,"head_domain_id":22,"public_ipv4":"203.0.113.10","public_ipv6":"","sni_enabled":true,"tls_mode":"custom-cert","force_https":true,"https_certificate_id":77,"default_language":"sk"}`
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/mail-server-settings", strings.NewReader(payload))
 	rec := httptest.NewRecorder()
@@ -2684,6 +2685,16 @@ func TestMailServerSettingsEndpointPersistsBehavior(t *testing.T) {
 	}
 	if store.mailServerSettings.DefaultLanguage != "sk" {
 		t.Fatalf("default language = %q, want sk", store.mailServerSettings.DefaultLanguage)
+	}
+	var saveResponse domain.MailServerSettings
+	if err := json.NewDecoder(rec.Body).Decode(&saveResponse); err != nil {
+		t.Fatalf("decode save response: %v", err)
+	}
+	if !saveResponse.ConfigApplyQueued || saveResponse.ConfigApplyError != "" {
+		t.Fatalf("config apply queue status = queued %t error %q", saveResponse.ConfigApplyQueued, saveResponse.ConfigApplyError)
+	}
+	if data, err := os.ReadFile(marker); err != nil || !strings.Contains(string(data), "requested_at=") {
+		t.Fatalf("config apply marker not written: data=%q err=%v", string(data), err)
 	}
 
 	getReq := httptest.NewRequest(http.MethodGet, "/api/v1/mail-server-settings", nil)

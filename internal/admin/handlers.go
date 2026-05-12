@@ -297,18 +297,9 @@ func (h handler) applyConfigDrift(w http.ResponseWriter, r *http.Request) {
 	if !h.requireAdminStepUp(w, r) {
 		return
 	}
-	path := strings.TrimSpace(h.system.ConfigApplyRequestPath)
-	if path == "" {
-		writeError(w, http.StatusInternalServerError, "config apply request path is not configured")
-		return
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0750); err != nil {
-		writeError(w, http.StatusInternalServerError, "create apply request directory failed")
-		return
-	}
-	body := "requested_at=" + time.Now().UTC().Format(time.RFC3339Nano) + "\n"
-	if err := os.WriteFile(path, []byte(body), 0640); err != nil {
-		writeError(w, http.StatusInternalServerError, "queue config apply failed")
+	path, err := h.queueConfigApplyRequest()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	metadata, _ := json.Marshal(map[string]string{"request_path": path})
@@ -325,6 +316,21 @@ func (h handler) applyConfigDrift(w http.ResponseWriter, r *http.Request) {
 		"status":       "queued",
 		"request_path": path,
 	})
+}
+
+func (h handler) queueConfigApplyRequest() (string, error) {
+	path := strings.TrimSpace(h.system.ConfigApplyRequestPath)
+	if path == "" {
+		return "", errors.New("config apply request path is not configured")
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0750); err != nil {
+		return "", fmt.Errorf("create apply request directory failed: %w", err)
+	}
+	body := "requested_at=" + time.Now().UTC().Format(time.RFC3339Nano) + "\n"
+	if err := os.WriteFile(path, []byte(body), 0640); err != nil {
+		return "", fmt.Errorf("queue config apply failed: %w", err)
+	}
+	return path, nil
 }
 
 func (h handler) runSystemCommand(ctx context.Context, command string, args ...string) error {
@@ -2663,6 +2669,21 @@ func (h handler) updateMailServerSettings(w http.ResponseWriter, r *http.Request
 	if err != nil {
 		writeStoreError(w, err, "update mail server settings failed")
 		return
+	}
+	if path, err := h.queueConfigApplyRequest(); err != nil {
+		settings.ConfigApplyError = err.Error()
+	} else {
+		settings.ConfigApplyQueued = true
+		metadata, _ := json.Marshal(map[string]string{"request_path": path, "source": "mail_server_settings"})
+		h.recordAudit(r.Context(), domain.AuditEvent{
+			ActorType:    "admin",
+			Action:       "system.config_apply_requested",
+			TargetType:   "system_config",
+			TargetID:     "mail-server",
+			Category:     "system",
+			Severity:     "warning",
+			MetadataJSON: string(metadata),
+		})
 	}
 	h.recordAudit(r.Context(), domain.AuditEvent{ActorType: "admin", Action: "mail_server_settings.update", TargetType: "system", TargetID: "mail-server", MetadataJSON: fmt.Sprintf(`{"hostname_mode":%q,"mail_hostname":%q,"sni_enabled":%t,"tls_mode":%q,"force_https":%t,"https_certificate_id":%q,"cloudflare_real_ip_enabled":%t}`, settings.HostnameMode, settings.MailHostname, settings.SNIEnabled, settings.TLSMode, settings.ForceHTTPS, uintPtrString(settings.HTTPSCertificateID), settings.CloudflareRealIPEnabled)})
 	writeJSON(w, http.StatusOK, settings)

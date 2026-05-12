@@ -245,6 +245,8 @@ type MailServerSettings struct {
 	ForceMailboxMFA         bool    `json:"force_mailbox_mfa"`
 	CloudflareRealIPEnabled bool    `json:"cloudflare_real_ip_enabled"`
 	EffectiveHostname       string  `json:"effective_hostname,omitempty"`
+	ConfigApplyQueued       bool    `json:"config_apply_queued,omitempty"`
+	ConfigApplyError        string  `json:"config_apply_error,omitempty"`
 }
 
 type SetupURL struct {
