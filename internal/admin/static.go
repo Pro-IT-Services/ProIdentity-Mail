@@ -753,7 +753,7 @@ const adminIndexHTML = `<!doctype html>
     ];
     const state = {
       tenants: [], domains: [], users: [], tenantAdmins: [], aliases: [], catchAll: [], sharedPermissions: [], quarantine: [], audit: [], policies: [], rateLimits: [], mailSettings: null, adminMFA: null, totpEnrollment: null, pendingMFA: null, webAuthnRegistration: null, stepUpPromise: null, stepUpReject: null,
-      view: "dashboard", domainTab: "domains", userTab: "people", systemTab: "mail", auditTab: "admin", auditAction: "", auditSeverity: "", auditSearch: "", selectedTenantId: "", selectedDomainId: "", dns: null, dnsCloudflare: null, domainTLS: null, configDrift: null, configDriftLoading: false, configApplyStatus: "", csrf: "", query: "", health: "checking", language: "en"
+      view: "dashboard", domainTab: "domains", userTab: "people", systemTab: "mail", auditTab: "admin", auditAction: "", auditSeverity: "", auditSearch: "", selectedTenantId: "", selectedDomainId: "", dns: null, dnsCloudflare: null, domainTLS: null, configDrift: null, configDriftLoading: false, configApplyInProgress: false, configApplyStatus: "", csrf: "", query: "", health: "checking", language: "en"
     };
     const i18nCatalog = __PROIDENTITY_I18N_CATALOG__;
     const supportedLanguages = [
@@ -1054,9 +1054,9 @@ const adminIndexHTML = `<!doctype html>
       }
       $("#health-pill").innerHTML = "<span class=\"material-symbols-outlined\">monitor_heart</span><span>" + esc(state.health) + "</span>";
     }
-    async function loadConfigDrift() {
+    async function loadConfigDrift(options = {}) {
       state.configDriftLoading = true;
-      state.configApplyStatus = "";
+      if (!options.keepApplyStatus) state.configApplyStatus = "";
       render();
       try {
         state.configDrift = await api("/api/v1/system/config-drift");
@@ -1067,11 +1067,30 @@ const adminIndexHTML = `<!doctype html>
     }
     async function requestConfigApply() {
       if (!confirm(t("Reload the whole live mail configuration from the database? This will apply Postfix, Dovecot, Rspamd, Nginx, and certificate helper files."))) return;
-      state.configApplyStatus = "Reload request queued. The root apply service will sync live files and restart/reload affected services.";
+      state.configApplyInProgress = true;
+      state.configApplyStatus = "Reload request queued. The root apply service is syncing live files and restarting/reloading affected services.";
       render();
       await api("/api/v1/system/config-apply", {method: "POST", body: JSON.stringify({})});
       showStatus("Configuration reload queued");
-      setTimeout(() => loadConfigDrift().catch(error => showStatus(error.message, true)), 5000);
+      try {
+        await waitForConfigApplyResult();
+        const status = state.configDrift?.status || "unknown";
+        state.configApplyStatus = status === "ok" ? "Configuration reload completed. Live files now match the database render." :
+          status === "drift" ? "Configuration reload finished, but differences remain. Review the items below." :
+          "Configuration reload finished, but the follow-up drift check reported errors.";
+        showStatus(status === "ok" ? "Configuration reload completed" : "Configuration reload completed with warnings", status !== "ok");
+      } finally {
+        state.configApplyInProgress = false;
+        render();
+      }
+    }
+    async function waitForConfigApplyResult() {
+      const delays = [4000, 2500, 2500, 2500];
+      for (const delay of delays) {
+        await new Promise(resolve => setTimeout(resolve, delay));
+        await loadConfigDrift({keepApplyStatus: true});
+        if (state.configDrift?.status === "ok") return;
+      }
     }
     function setView(view) {
       state.view = view === "onboarding" && !setupIncomplete() ? "dashboard" : view;
@@ -1363,7 +1382,7 @@ const adminIndexHTML = `<!doctype html>
         "Config drift check found errors.";
       const changed = report ? (report.items || []).filter(item => item.status !== "match") : [];
       return "<section class=\"card\"><div class=\"panel-head\"><div><h4>Config drift</h4><p>Compare database desired state against live Postfix, Dovecot, Rspamd, and Nginx files.</p></div>" + badge(statusText) + "</div>" + tabBar +
-        "<div class=\"card-body step-list\"><div class=\"step\"><div class=\"step-title\"><div><strong>" + esc(message) + "</strong><p class=\"muted small\">Use reload only after reviewing differences. The admin service queues the request; a root-owned systemd job performs the actual file sync and restarts.</p></div><div class=\"actions\"><button class=\"button\" data-check-config-drift><span class=\"material-symbols-outlined\">plagiarism</span>" + (state.configDriftLoading ? "Checking..." : "Check drift") + "</button><button class=\"button primary\" data-apply-config-drift " + (!report || report.status === "ok" || state.configDriftLoading ? "disabled" : "") + "><span class=\"material-symbols-outlined\">sync</span>Reload live config from DB</button></div></div>" + (state.configApplyStatus ? "<p class=\"muted small\">" + esc(state.configApplyStatus) + "</p>" : "") + "</div>" +
+        "<div class=\"card-body step-list\"><div class=\"step\"><div class=\"step-title\"><div><strong>" + esc(message) + "</strong><p class=\"muted small\">Use reload only after reviewing differences. The admin service queues the request; a root-owned systemd job performs the actual file sync and restarts.</p></div><div class=\"actions\"><button class=\"button\" data-check-config-drift " + (state.configApplyInProgress ? "disabled" : "") + "><span class=\"material-symbols-outlined\">plagiarism</span>" + (state.configDriftLoading ? "Checking..." : "Check drift") + "</button><button class=\"button primary\" data-apply-config-drift " + (!report || report.status === "ok" || state.configDriftLoading || state.configApplyInProgress ? "disabled" : "") + "><span class=\"material-symbols-outlined\">sync</span>" + (state.configApplyInProgress ? "Applying..." : "Reload live config from DB") + "</button></div></div>" + (state.configApplyStatus ? "<p class=\"muted small\">" + esc(state.configApplyStatus) + "</p>" : "") + "</div>" +
         (report ? "<div class=\"drift-summary\">" + driftStat("Files", summary.total || 0) + driftStat("Matching", summary.matching || 0) + driftStat("Changed", summary.drifted || 0) + driftStat("Missing", summary.missing_live || 0) + driftStat("Errors", summary.errors || 0) + "</div>" : "") +
         (report ? (changed.length ? changed.map(renderDriftItem).join("") : "<div class=\"scope-empty\">No differences found. Live configuration matches the database render.</div>") : "<div class=\"scope-empty\">No drift check has been run in this browser session.</div>") + "</div></section>";
     }

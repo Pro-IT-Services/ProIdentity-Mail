@@ -208,6 +208,8 @@ func TestAdminIndexIncludesConfigDriftUI(t *testing.T) {
 		[]byte("/api/v1/system/config-apply"),
 		[]byte("data-check-config-drift"),
 		[]byte("data-apply-config-drift"),
+		[]byte("configApplyInProgress"),
+		[]byte("Configuration reload completed"),
 		[]byte("Live system differs from database"),
 		[]byte("diff-box"),
 	} {
