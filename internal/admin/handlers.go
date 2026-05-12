@@ -80,6 +80,7 @@ type Store interface {
 	UpdateMailServerSettings(ctx context.Context, settings domain.MailServerSettings) (domain.MailServerSettings, error)
 	GetDomainDNS(ctx context.Context, domainID uint64) (domain.DomainDNS, error)
 	GetDomainTLS(ctx context.Context, domainID uint64) (domain.DomainTLS, error)
+	ListAvailableTLSCertificates(ctx context.Context) ([]domain.TLSCertificate, error)
 	UpdateDomainTLSSettings(ctx context.Context, settings domain.DomainTLSSettings) (domain.DomainTLSSettings, error)
 	CreateTLSCertificateJob(ctx context.Context, job domain.TLSCertificateJob) (domain.TLSCertificateJob, error)
 	GetCloudflareConfig(ctx context.Context, domainID uint64) (domain.CloudflareConfig, error)
@@ -187,6 +188,7 @@ func NewRouter(store Store, authConfig ...AuthConfig) http.Handler {
 		protected.Get("/api/v1/domains/{domainID}/tls", h.getDomainTLS)
 		protected.Put("/api/v1/domains/{domainID}/tls/settings", h.updateDomainTLSSettings)
 		protected.Post("/api/v1/domains/{domainID}/tls/jobs", h.createTLSCertificateJob)
+		protected.Get("/api/v1/tls/certificates", h.listAvailableTLSCertificates)
 		protected.Get("/api/v1/domains/{domainID}/cloudflare", h.getCloudflareConfig)
 		protected.Put("/api/v1/domains/{domainID}/cloudflare", h.saveCloudflareConfig)
 		protected.Post("/api/v1/domains/{domainID}/cloudflare/check", h.checkCloudflareDNS)
@@ -2206,6 +2208,22 @@ func (h handler) getDomainTLS(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, tlsState)
 }
 
+func (h handler) listAvailableTLSCertificates(w http.ResponseWriter, r *http.Request) {
+	if h.store == nil {
+		writeError(w, http.StatusServiceUnavailable, "store unavailable")
+		return
+	}
+	if !requireSuperAdmin(w, r) {
+		return
+	}
+	certificates, err := h.store.ListAvailableTLSCertificates(r.Context())
+	if err != nil {
+		writeStoreError(w, err, "list tls certificates failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, certificates)
+}
+
 func (h handler) updateDomainTLSSettings(w http.ResponseWriter, r *http.Request) {
 	if h.store == nil {
 		writeError(w, http.StatusServiceUnavailable, "store unavailable")
@@ -2635,6 +2653,7 @@ func (h handler) updateMailServerSettings(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, "tls_mode must be system, none, behind-proxy, letsencrypt-http, letsencrypt-dns-cloudflare, or custom-cert")
 		return
 	}
+	req.HTTPSCertificateID = cleanUintPtr(req.HTTPSCertificateID)
 	req.DefaultLanguage = i18n.NormalizeLanguage(req.DefaultLanguage)
 	if req.DefaultLanguage == "" {
 		writeError(w, http.StatusBadRequest, "default_language is not supported")
@@ -2645,7 +2664,7 @@ func (h handler) updateMailServerSettings(w http.ResponseWriter, r *http.Request
 		writeStoreError(w, err, "update mail server settings failed")
 		return
 	}
-	h.recordAudit(r.Context(), domain.AuditEvent{ActorType: "admin", Action: "mail_server_settings.update", TargetType: "system", TargetID: "mail-server", MetadataJSON: fmt.Sprintf(`{"hostname_mode":%q,"mail_hostname":%q,"sni_enabled":%t,"tls_mode":%q,"force_https":%t,"cloudflare_real_ip_enabled":%t}`, settings.HostnameMode, settings.MailHostname, settings.SNIEnabled, settings.TLSMode, settings.ForceHTTPS, settings.CloudflareRealIPEnabled)})
+	h.recordAudit(r.Context(), domain.AuditEvent{ActorType: "admin", Action: "mail_server_settings.update", TargetType: "system", TargetID: "mail-server", MetadataJSON: fmt.Sprintf(`{"hostname_mode":%q,"mail_hostname":%q,"sni_enabled":%t,"tls_mode":%q,"force_https":%t,"https_certificate_id":%q,"cloudflare_real_ip_enabled":%t}`, settings.HostnameMode, settings.MailHostname, settings.SNIEnabled, settings.TLSMode, settings.ForceHTTPS, uintPtrString(settings.HTTPSCertificateID), settings.CloudflareRealIPEnabled)})
 	writeJSON(w, http.StatusOK, settings)
 }
 
@@ -2656,6 +2675,13 @@ func parsePathUint(w http.ResponseWriter, r *http.Request, name, message string)
 		return 0, false
 	}
 	return id, true
+}
+
+func uintPtrString(value *uint64) string {
+	if value == nil {
+		return ""
+	}
+	return strconv.FormatUint(*value, 10)
 }
 
 func normalizeTenantSlug(value string) (string, bool) {

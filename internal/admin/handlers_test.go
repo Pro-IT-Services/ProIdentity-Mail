@@ -180,7 +180,9 @@ func TestAdminIndexUsesMailServerBehaviorSettings(t *testing.T) {
 		[]byte("translateUI"),
 		[]byte("Enable SNI certificate maps"),
 		[]byte("HTTPS and SSL"),
+		[]byte("Existing certificate"),
 		[]byte("Force HTTPS redirect"),
+		[]byte("/api/v1/tls/certificates"),
 		[]byte("Mailbox two-factor authentication"),
 		[]byte("Force mailbox 2FA setup"),
 	} {
@@ -2662,7 +2664,7 @@ func TestBuildDomainDNSHeadDomainModeAliasesOtherDomains(t *testing.T) {
 func TestMailServerSettingsEndpointPersistsBehavior(t *testing.T) {
 	store := &fakeStore{}
 	handler := NewRouter(store)
-	payload := `{"hostname_mode":"head-domain","mail_hostname":"mail.platform.test","head_tenant_id":11,"head_domain_id":22,"public_ipv4":"203.0.113.10","public_ipv6":"","sni_enabled":true,"tls_mode":"letsencrypt-http","force_https":true,"default_language":"sk"}`
+	payload := `{"hostname_mode":"head-domain","mail_hostname":"mail.platform.test","head_tenant_id":11,"head_domain_id":22,"public_ipv4":"203.0.113.10","public_ipv6":"","sni_enabled":true,"tls_mode":"custom-cert","force_https":true,"https_certificate_id":77,"default_language":"sk"}`
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/mail-server-settings", strings.NewReader(payload))
 	rec := httptest.NewRecorder()
 
@@ -2674,8 +2676,11 @@ func TestMailServerSettingsEndpointPersistsBehavior(t *testing.T) {
 	if store.mailServerSettings.HostnameMode != "head-domain" || !store.mailServerSettings.SNIEnabled {
 		t.Fatalf("settings not persisted: %+v", store.mailServerSettings)
 	}
-	if store.mailServerSettings.TLSMode != "letsencrypt-http" || !store.mailServerSettings.ForceHTTPS {
+	if store.mailServerSettings.TLSMode != "custom-cert" || !store.mailServerSettings.ForceHTTPS {
 		t.Fatalf("tls settings not persisted: %+v", store.mailServerSettings)
+	}
+	if store.mailServerSettings.HTTPSCertificateID == nil || *store.mailServerSettings.HTTPSCertificateID != 77 {
+		t.Fatalf("https certificate id not persisted: %+v", store.mailServerSettings)
 	}
 	if store.mailServerSettings.DefaultLanguage != "sk" {
 		t.Fatalf("default language = %q, want sk", store.mailServerSettings.DefaultLanguage)
@@ -3232,6 +3237,24 @@ func (s *fakeStore) GetDomainTLS(ctx context.Context, domainID uint64) (domain.D
 			Hostnames:     []string{"mail.example.com"},
 		}},
 	}, nil
+}
+
+func (s *fakeStore) ListAvailableTLSCertificates(ctx context.Context) ([]domain.TLSCertificate, error) {
+	return []domain.TLSCertificate{{
+		ID:            77,
+		DomainID:      22,
+		DomainName:    "example.com",
+		Source:        "letsencrypt",
+		Status:        "active",
+		CommonName:    "mail.example.com",
+		SANs:          []string{"mail.example.com", "webmail.example.com"},
+		CertPath:      "/etc/letsencrypt/live/mail.example.com/fullchain.pem",
+		KeyPath:       "/etc/letsencrypt/live/mail.example.com/privkey.pem",
+		DaysRemaining: 82,
+		UsedForHTTPS:  true,
+		CreatedAt:     time.Now().UTC(),
+		UpdatedAt:     time.Now().UTC(),
+	}}, nil
 }
 
 func (s *fakeStore) UpdateDomainTLSSettings(ctx context.Context, settings domain.DomainTLSSettings) (domain.DomainTLSSettings, error) {

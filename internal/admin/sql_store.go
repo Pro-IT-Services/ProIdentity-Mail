@@ -1315,14 +1315,15 @@ func (s SQLStore) UpdateMailServerSettings(ctx context.Context, settings domain.
 	settings.HeadTenantID = cleanUintPtr(settings.HeadTenantID)
 	settings.HeadDomainID = cleanUintPtr(settings.HeadDomainID)
 	settings.TLSMode = normalizeProxyTLSMode(settings.TLSMode)
+	settings.HTTPSCertificateID = cleanUintPtr(settings.HTTPSCertificateID)
 	settings.DefaultLanguage = normalizeLanguageOrDefault(settings.DefaultLanguage)
 	if settings.HostnameMode == "shared" && settings.MailHostname == "" {
 		settings.MailHostname = effectiveMailHost("", s.dns.MailHostname)
 	}
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO mail_server_settings(id, hostname_mode, mail_hostname, head_tenant_id, head_domain_id, public_ipv4, public_ipv6, sni_enabled, tls_mode, force_https, default_language, mailbox_mfa_enabled, force_mailbox_mfa, cloudflare_real_ip_enabled)
-		VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON DUPLICATE KEY UPDATE hostname_mode = VALUES(hostname_mode), mail_hostname = VALUES(mail_hostname), head_tenant_id = VALUES(head_tenant_id), head_domain_id = VALUES(head_domain_id), public_ipv4 = VALUES(public_ipv4), public_ipv6 = VALUES(public_ipv6), sni_enabled = VALUES(sni_enabled), tls_mode = VALUES(tls_mode), force_https = VALUES(force_https), default_language = VALUES(default_language), mailbox_mfa_enabled = VALUES(mailbox_mfa_enabled), force_mailbox_mfa = VALUES(force_mailbox_mfa), cloudflare_real_ip_enabled = VALUES(cloudflare_real_ip_enabled)`,
+		INSERT INTO mail_server_settings(id, hostname_mode, mail_hostname, head_tenant_id, head_domain_id, public_ipv4, public_ipv6, sni_enabled, tls_mode, force_https, https_certificate_id, default_language, mailbox_mfa_enabled, force_mailbox_mfa, cloudflare_real_ip_enabled)
+		VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON DUPLICATE KEY UPDATE hostname_mode = VALUES(hostname_mode), mail_hostname = VALUES(mail_hostname), head_tenant_id = VALUES(head_tenant_id), head_domain_id = VALUES(head_domain_id), public_ipv4 = VALUES(public_ipv4), public_ipv6 = VALUES(public_ipv6), sni_enabled = VALUES(sni_enabled), tls_mode = VALUES(tls_mode), force_https = VALUES(force_https), https_certificate_id = VALUES(https_certificate_id), default_language = VALUES(default_language), mailbox_mfa_enabled = VALUES(mailbox_mfa_enabled), force_mailbox_mfa = VALUES(force_mailbox_mfa), cloudflare_real_ip_enabled = VALUES(cloudflare_real_ip_enabled)`,
 		settings.HostnameMode,
 		settings.MailHostname,
 		uintPtrArg(settings.HeadTenantID),
@@ -1332,6 +1333,7 @@ func (s SQLStore) UpdateMailServerSettings(ctx context.Context, settings domain.
 		settings.SNIEnabled,
 		settings.TLSMode,
 		settings.ForceHTTPS,
+		uintPtrArg(settings.HTTPSCertificateID),
 		settings.DefaultLanguage,
 		settings.MailboxMFAEnabled,
 		settings.ForceMailboxMFA,
@@ -1347,10 +1349,15 @@ func (s SQLStore) scanMailServerSettings(ctx context.Context) (domain.MailServer
 	var settings domain.MailServerSettings
 	var headTenant sql.NullInt64
 	var headDomain sql.NullInt64
+	var httpsCertificateID sql.NullInt64
 	err := s.db.QueryRowContext(ctx, `
-		SELECT hostname_mode, mail_hostname, head_tenant_id, head_domain_id, public_ipv4, public_ipv6, sni_enabled, COALESCE(tls_mode, 'system'), COALESCE(force_https, 1), COALESCE(default_language, 'en'), COALESCE(mailbox_mfa_enabled, 1), COALESCE(force_mailbox_mfa, 0), COALESCE(cloudflare_real_ip_enabled, 0)
-		FROM mail_server_settings
-		WHERE id = 1`).Scan(&settings.HostnameMode, &settings.MailHostname, &headTenant, &headDomain, &settings.PublicIPv4, &settings.PublicIPv6, &settings.SNIEnabled, &settings.TLSMode, &settings.ForceHTTPS, &settings.DefaultLanguage, &settings.MailboxMFAEnabled, &settings.ForceMailboxMFA, &settings.CloudflareRealIPEnabled)
+		SELECT ms.hostname_mode, ms.mail_hostname, ms.head_tenant_id, ms.head_domain_id, ms.public_ipv4, ms.public_ipv6, ms.sni_enabled,
+		       COALESCE(ms.tls_mode, 'system'), COALESCE(ms.force_https, 1), ms.https_certificate_id,
+		       COALESCE(c.common_name, ''), COALESCE(c.cert_path, ''), COALESCE(c.key_path, ''), COALESCE(c.chain_path, ''),
+		       COALESCE(ms.default_language, 'en'), COALESCE(ms.mailbox_mfa_enabled, 1), COALESCE(ms.force_mailbox_mfa, 0), COALESCE(ms.cloudflare_real_ip_enabled, 0)
+		FROM mail_server_settings ms
+		LEFT JOIN tls_certificates c ON c.id = ms.https_certificate_id
+		WHERE ms.id = 1`).Scan(&settings.HostnameMode, &settings.MailHostname, &headTenant, &headDomain, &settings.PublicIPv4, &settings.PublicIPv6, &settings.SNIEnabled, &settings.TLSMode, &settings.ForceHTTPS, &httpsCertificateID, &settings.HTTPSCertificateName, &settings.HTTPSCertPath, &settings.HTTPSKeyPath, &settings.HTTPSChainPath, &settings.DefaultLanguage, &settings.MailboxMFAEnabled, &settings.ForceMailboxMFA, &settings.CloudflareRealIPEnabled)
 	if err != nil {
 		return domain.MailServerSettings{}, err
 	}
@@ -1361,6 +1368,10 @@ func (s SQLStore) scanMailServerSettings(ctx context.Context) (domain.MailServer
 	if headDomain.Valid {
 		id := uint64(headDomain.Int64)
 		settings.HeadDomainID = &id
+	}
+	if httpsCertificateID.Valid {
+		id := uint64(httpsCertificateID.Int64)
+		settings.HTTPSCertificateID = &id
 	}
 	settings.HostnameMode = normalizeHostnameMode(settings.HostnameMode)
 	settings.MailHostname = normalizeDNSName(settings.MailHostname)
@@ -1709,6 +1720,30 @@ func (s SQLStore) ListTLSCertificates(ctx context.Context, domainID uint64) ([]d
 	return certificates, rows.Err()
 }
 
+func (s SQLStore) ListAvailableTLSCertificates(ctx context.Context) ([]domain.TLSCertificate, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT c.id, c.domain_id, d.name, c.source, c.status, c.common_name, CAST(c.sans_json AS CHAR), c.cert_path, c.key_path, c.chain_path,
+		       c.issuer, c.serial, c.fingerprint_sha256, c.not_before, c.not_after, c.used_for_https, c.used_for_mail_sni, c.last_error, c.created_at, c.updated_at
+		FROM tls_certificates c
+		JOIN domains d ON d.id = c.domain_id
+		WHERE c.status IN ('active','expiring') AND c.cert_path <> '' AND c.key_path <> ''
+		ORDER BY c.used_for_https DESC, c.not_after DESC, c.updated_at DESC, c.id DESC
+		LIMIT 100`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var certificates []domain.TLSCertificate
+	for rows.Next() {
+		cert, err := scanTLSCertificateWithDomainRows(rows)
+		if err != nil {
+			return nil, err
+		}
+		certificates = append(certificates, cert)
+	}
+	return certificates, rows.Err()
+}
+
 func (s SQLStore) ListTLSCertificateJobs(ctx context.Context, domainID uint64) ([]domain.TLSCertificateJob, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, domain_id, certificate_id, job_type, challenge_type, status, step, progress, message, error, CAST(hostnames_json AS CHAR), requested_by, created_at, updated_at, started_at, finished_at
@@ -1950,6 +1985,47 @@ func scanTLSCertificateRows(scanner tlsCertificateScanner) (domain.TLSCertificat
 	err := scanner.Scan(
 		&cert.ID,
 		&cert.DomainID,
+		&cert.Source,
+		&cert.Status,
+		&cert.CommonName,
+		&sansJSON,
+		&cert.CertPath,
+		&cert.KeyPath,
+		&cert.ChainPath,
+		&cert.Issuer,
+		&cert.Serial,
+		&cert.FingerprintSHA256,
+		&notBefore,
+		&notAfter,
+		&cert.UsedForHTTPS,
+		&cert.UsedForMailSNI,
+		&cert.LastError,
+		&cert.CreatedAt,
+		&cert.UpdatedAt,
+	)
+	if err != nil {
+		return domain.TLSCertificate{}, err
+	}
+	_ = json.Unmarshal([]byte(sansJSON), &cert.SANs)
+	if notBefore.Valid {
+		cert.NotBefore = &notBefore.Time
+	}
+	if notAfter.Valid {
+		cert.NotAfter = &notAfter.Time
+		cert.DaysRemaining = int(time.Until(notAfter.Time).Hours() / 24)
+	}
+	return cert, nil
+}
+
+func scanTLSCertificateWithDomainRows(scanner tlsCertificateScanner) (domain.TLSCertificate, error) {
+	var cert domain.TLSCertificate
+	var sansJSON string
+	var notBefore sql.NullTime
+	var notAfter sql.NullTime
+	err := scanner.Scan(
+		&cert.ID,
+		&cert.DomainID,
+		&cert.DomainName,
 		&cert.Source,
 		&cert.Status,
 		&cert.CommonName,

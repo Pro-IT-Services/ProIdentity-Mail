@@ -1459,6 +1459,12 @@ func writeProxyFiles(cfg app.Config, targetDir string) {
 }
 
 func proxyRenderData(cfg app.Config, mailSettings domain.MailServerSettings) render.NginxProxyData {
+	certPath := cfg.TLSCertPath
+	keyPath := cfg.TLSKeyPath
+	if effectiveProxyTLSMode(cfg, mailSettings) == "custom-cert" && strings.TrimSpace(mailSettings.HTTPSCertPath) != "" && strings.TrimSpace(mailSettings.HTTPSKeyPath) != "" {
+		certPath = mailSettings.HTTPSCertPath
+		keyPath = mailSettings.HTTPSKeyPath
+	}
 	return render.NginxProxyData{
 		TLSMode:                 effectiveProxyTLSMode(cfg, mailSettings),
 		AdminHostname:           cfg.AdminHostname,
@@ -1468,8 +1474,8 @@ func proxyRenderData(cfg app.Config, mailSettings domain.MailServerSettings) ren
 		AutoconfigHostname:      cfg.AutoconfigHostname,
 		AutodiscoverHostname:    cfg.AutodiscoverHostname,
 		ACMEWebroot:             cfg.ACMEWebroot,
-		CertPath:                cfg.TLSCertPath,
-		KeyPath:                 cfg.TLSKeyPath,
+		CertPath:                certPath,
+		KeyPath:                 keyPath,
 		ForceHTTPS:              effectiveProxyForceHTTPS(cfg, mailSettings),
 		TrustProxyHeaders:       cfg.TrustProxyHeaders,
 		TrustedProxyCIDRs:       cfg.TrustedProxyCIDRs,

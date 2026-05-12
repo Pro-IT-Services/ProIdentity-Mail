@@ -185,6 +185,7 @@ type DomainTLSSettings struct {
 type TLSCertificate struct {
 	ID                uint64     `json:"id"`
 	DomainID          uint64     `json:"domain_id"`
+	DomainName        string     `json:"domain_name,omitempty"`
 	Source            string     `json:"source"`
 	Status            string     `json:"status"`
 	CommonName        string     `json:"common_name,omitempty"`
@@ -234,6 +235,11 @@ type MailServerSettings struct {
 	SNIEnabled              bool    `json:"sni_enabled"`
 	TLSMode                 string  `json:"tls_mode"`
 	ForceHTTPS              bool    `json:"force_https"`
+	HTTPSCertificateID      *uint64 `json:"https_certificate_id,omitempty"`
+	HTTPSCertificateName    string  `json:"https_certificate_name,omitempty"`
+	HTTPSCertPath           string  `json:"https_cert_path,omitempty"`
+	HTTPSKeyPath            string  `json:"https_key_path,omitempty"`
+	HTTPSChainPath          string  `json:"https_chain_path,omitempty"`
 	DefaultLanguage         string  `json:"default_language"`
 	MailboxMFAEnabled       bool    `json:"mailbox_mfa_enabled"`
 	ForceMailboxMFA         bool    `json:"force_mailbox_mfa"`
