@@ -2424,6 +2424,30 @@ func TestCloudflarePlannerTreatsStructuredSRVAsMatching(t *testing.T) {
 	}
 }
 
+func TestCloudflarePlannerTreatsExistingCNAMEAsBlockerForAddressRecord(t *testing.T) {
+	desired := desiredCloudflareRecords([]domain.DNSRecord{
+		{Type: "A", Name: "webmail.example.com", Value: "203.0.113.10", Proxied: boolPtr(true)},
+	})
+	existing := []cloudflareDNSRecord{{
+		ID:      "old-webmail-cname",
+		Type:    "CNAME",
+		Name:    "webmail.example.com",
+		Content: "mail.example.com",
+		Proxied: boolPtr(false),
+	}}
+
+	plan := planCloudflareActions(desired, existing)
+	if len(plan) != 1 {
+		t.Fatalf("plan length = %d, want 1", len(plan))
+	}
+	if plan[0].action.Action != "blocked" || !strings.Contains(plan[0].action.Reason, "CNAME") {
+		t.Fatalf("address over CNAME action = %+v, want blocked CNAME conflict", plan[0].action)
+	}
+	if len(plan[0].touch) != 1 || plan[0].touch[0].ID != "old-webmail-cname" {
+		t.Fatalf("planner did not include blocking CNAME for replacement: %+v", plan[0].touch)
+	}
+}
+
 func TestCloudflareClientListsAllDNSRecordPages(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := r.Header.Get("Authorization"); got != "Bearer test-token" {

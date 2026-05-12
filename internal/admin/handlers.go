@@ -2892,6 +2892,10 @@ func writeStoreError(w http.ResponseWriter, err error, message string) {
 		writeError(w, http.StatusConflict, "domain dns settings are incomplete; configure public mail hostname or server public IP first")
 		return
 	}
+	if strings.Contains(strings.ToLower(err.Error()), "cloudflare") {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
 	writeError(w, http.StatusInternalServerError, message)
 }
 

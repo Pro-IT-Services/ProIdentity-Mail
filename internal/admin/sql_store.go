@@ -2300,12 +2300,14 @@ func (s SQLStore) ApplyCloudflareDNS(ctx context.Context, domainID uint64, repla
 	}
 	backupRecords := make([]cloudflareDNSRecord, 0)
 	changed := 0
+	deleted := make(map[string]bool)
 	for _, planned := range ctxData.planned {
 		switch planned.action.Action {
 		case "ok":
 			continue
 		case "create":
 			if err := ctxData.client.createRecord(ctx, ctxData.zoneID, planned.desired); err != nil {
+				_ = s.markCloudflareChecked(ctx, domainID, ctxData.zoneID, plan.ZoneName, "error", err.Error())
 				return domain.DNSProvisionResult{}, err
 			}
 			changed++
@@ -2322,20 +2324,35 @@ func (s SQLStore) ApplyCloudflareDNS(ctx context.Context, domainID uint64, repla
 				}
 				changed++
 				for _, extra := range planned.touch[1:] {
+					if extra.ID != "" && deleted[extra.ID] {
+						continue
+					}
 					if err := ctxData.client.deleteRecord(ctx, ctxData.zoneID, extra.ID); err != nil {
+						_ = s.markCloudflareChecked(ctx, domainID, ctxData.zoneID, plan.ZoneName, "error", err.Error())
 						return domain.DNSProvisionResult{}, err
+					}
+					if extra.ID != "" {
+						deleted[extra.ID] = true
 					}
 					changed++
 				}
 				continue
 			}
 			for _, existing := range planned.touch {
+				if existing.ID != "" && deleted[existing.ID] {
+					continue
+				}
 				if err := ctxData.client.deleteRecord(ctx, ctxData.zoneID, existing.ID); err != nil {
+					_ = s.markCloudflareChecked(ctx, domainID, ctxData.zoneID, plan.ZoneName, "error", err.Error())
 					return domain.DNSProvisionResult{}, err
+				}
+				if existing.ID != "" {
+					deleted[existing.ID] = true
 				}
 				changed++
 			}
 			if err := ctxData.client.createRecord(ctx, ctxData.zoneID, planned.desired); err != nil {
+				_ = s.markCloudflareChecked(ctx, domainID, ctxData.zoneID, plan.ZoneName, "error", err.Error())
 				return domain.DNSProvisionResult{}, err
 			}
 			changed++
@@ -2662,6 +2679,10 @@ func planCloudflareActions(desired, existing []cloudflareDNSRecord) []plannedClo
 			action.Action = "blocked"
 			action.Reason = "CNAME cannot coexist with other record types at the same name"
 		}
+		if want.Type != "CNAME" && hasType(touch, "CNAME") {
+			action.Action = "blocked"
+			action.Reason = "existing CNAME cannot coexist with this record type"
+		}
 		action.Existing = make([]domain.DNSRecord, 0, len(touch))
 		for _, current := range touch {
 			action.Existing = append(action.Existing, domain.DNSRecord{Type: current.Type, Name: current.Name, Value: recordComparable(current), Priority: current.Priority})
@@ -2678,6 +2699,10 @@ func relevantExisting(want cloudflareDNSRecord, existing []cloudflareDNSRecord) 
 			continue
 		}
 		if want.Type == "CNAME" {
+			out = append(out, current)
+			continue
+		}
+		if strings.EqualFold(current.Type, "CNAME") {
 			out = append(out, current)
 			continue
 		}
@@ -2787,6 +2812,15 @@ func allType(records []cloudflareDNSRecord, recordType string) bool {
 		}
 	}
 	return true
+}
+
+func hasType(records []cloudflareDNSRecord, recordType string) bool {
+	for _, record := range records {
+		if strings.EqualFold(record.Type, recordType) {
+			return true
+		}
+	}
+	return false
 }
 
 func normalizeDKIMTXT(value string) string {
