@@ -12,7 +12,7 @@ CREATE TABLE domains (
   id bigint unsigned NOT NULL AUTO_INCREMENT PRIMARY KEY,
   tenant_id bigint unsigned NOT NULL,
   name varchar(253) NOT NULL,
-  status enum('pending','active','disabled') NOT NULL DEFAULT 'pending',
+  status enum('pending','active','disabled') NOT NULL DEFAULT 'active',
   dkim_selector varchar(63) NOT NULL DEFAULT 'mail',
   created_at timestamp NOT NULL DEFAULT current_timestamp(),
   updated_at timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),

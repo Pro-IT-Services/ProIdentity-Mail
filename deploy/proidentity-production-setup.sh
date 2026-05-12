@@ -515,7 +515,7 @@ Environment=PROIDENTITY_BACKUP_KEEP_DAILY=7
 Environment=PROIDENTITY_BACKUP_KEEP_WEEKLY=4
 Environment=PROIDENTITY_BACKUP_KEEP_MONTHLY=12
 Environment=PROIDENTITY_BACKUP_SCHEDULED=1
-ExecStart=/usr/bin/sudo -n -E /opt/proidentity-mail/bin/proidentity-rootctl backup
+ExecStart=/usr/bin/sudo -n /opt/proidentity-mail/bin/proidentity-rootctl backup
 UMask=0077
 NoNewPrivileges=false
 PrivateTmp=true
@@ -557,7 +557,7 @@ After=network-online.target mariadb.service nginx.service
 [Service]
 Type=oneshot
 EnvironmentFile=/etc/proidentity-mail/proidentity-mail.env
-ExecStart=/usr/bin/sudo -n -E /opt/proidentity-mail/bin/proidentity-rootctl tls-worker
+ExecStart=/usr/bin/sudo -n /opt/proidentity-mail/bin/proidentity-rootctl tls-worker
 User=proidentity
 Group=proidentity
 UMask=0077
@@ -574,7 +574,7 @@ LockPersonality=true
 RestrictRealtime=true
 RestrictNamespaces=true
 SystemCallArchitectures=native
-ReadWritePaths=/etc/proidentity-mail /etc/letsencrypt /etc/nginx /etc/postfix /etc/dovecot /var/lib/proidentity-mail/acme /var/lib/proidentity-mail /var/spool/postfix
+ReadWritePaths=/etc/proidentity-mail /etc/letsencrypt /etc/nginx /etc/postfix /etc/dovecot /etc/rspamd /var/lib/rspamd/dkim /var/lib/proidentity-mail/acme /var/lib/proidentity-mail /var/spool/postfix /run /tmp
 UNIT
 
   cat > /etc/systemd/system/proidentity-tls-worker.timer <<'UNIT'
@@ -602,8 +602,8 @@ Type=oneshot
 User=proidentity
 Group=proidentity
 EnvironmentFile=/etc/proidentity-mail/proidentity-mail.env
-ExecStart=/usr/bin/sudo -n -E /opt/proidentity-mail/bin/proidentity-rootctl config-apply
-ExecStart=/usr/bin/sudo -n -E /opt/proidentity-mail/bin/proidentity-rootctl sync-proxy
+ExecStart=/usr/bin/sudo -n /opt/proidentity-mail/bin/proidentity-rootctl config-apply
+ExecStart=/usr/bin/sudo -n /opt/proidentity-mail/bin/proidentity-rootctl sync-proxy
 UMask=0077
 NoNewPrivileges=false
 PrivateTmp=true
@@ -808,7 +808,7 @@ install_artifacts() {
   for name in webadmin webmail groupware mailctl apply-mail-config; do
     require_file "${ARTIFACT_DIR}/${name}"
   done
-  install -d -m 0750 -o root -g proidentity /opt/proidentity-mail "${BIN_DIR}"
+  install -d -m 0755 -o root -g root /opt/proidentity-mail "${BIN_DIR}"
   install -m 0755 "${ARTIFACT_DIR}/webadmin" "${BIN_DIR}/webadmin"
   install -m 0755 "${ARTIFACT_DIR}/webmail" "${BIN_DIR}/webmail"
   install -m 0755 "${ARTIFACT_DIR}/groupware" "${BIN_DIR}/groupware"
@@ -862,7 +862,8 @@ EOF
 
 prepare_runtime_dirs() {
   install -d -m 0750 -o vmail -g vmail /var/vmail
-  install -d -m 0750 -o root -g root /var/lib/proidentity-mail /var/lib/proidentity-mail/quarantine
+  install -d -m 0751 -o root -g root /var/lib/proidentity-mail
+  install -d -m 0750 -o root -g root /var/lib/proidentity-mail/quarantine
   install -d -m 0700 -o root -g root /var/backups/proidentity-mail
   install -d -m 0755 -o root -g root /var/lib/proidentity-mail/acme
   install -d -m 0750 -o _rspamd -g _rspamd /var/lib/rspamd/dkim

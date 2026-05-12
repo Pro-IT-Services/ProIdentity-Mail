@@ -128,7 +128,7 @@ func (s SQLStore) DeleteTenant(ctx context.Context, tenantID uint64) error {
 }
 
 func (s SQLStore) CreateDomain(ctx context.Context, mailDomain domain.Domain) (domain.Domain, error) {
-	result, err := s.db.ExecContext(ctx, `INSERT INTO domains(tenant_id, name, status, dkim_selector) VALUES (?, ?, 'pending', 'mail')`, mailDomain.TenantID, mailDomain.Name)
+	result, err := s.db.ExecContext(ctx, `INSERT INTO domains(tenant_id, name, status, dkim_selector) VALUES (?, ?, 'active', 'mail')`, mailDomain.TenantID, mailDomain.Name)
 	if err != nil {
 		return domain.Domain{}, err
 	}
@@ -137,7 +137,7 @@ func (s SQLStore) CreateDomain(ctx context.Context, mailDomain domain.Domain) (d
 		return domain.Domain{}, err
 	}
 	mailDomain.ID = uint64(id)
-	mailDomain.Status = "pending"
+	mailDomain.Status = "active"
 	mailDomain.DKIMSelector = "mail"
 	return mailDomain, nil
 }

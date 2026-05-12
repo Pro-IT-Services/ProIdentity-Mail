@@ -496,6 +496,9 @@ func TestRenderNginxProxyDoesNotDuplicateSharedDAVHost(t *testing.T) {
 	if !strings.Contains(text, "location /dav/") {
 		t.Fatalf("shared webmail/DAV hostname should still expose DAV routes: %s", text)
 	}
+	if !strings.Contains(text, "location ^~ /.well-known/acme-challenge/") {
+		t.Fatalf("HTTP virtual hosts should expose ACME challenge path before TLS is enabled: %s", text)
+	}
 }
 
 func TestRenderNginxProxyRoutesMailHostForDAVDiscovery(t *testing.T) {

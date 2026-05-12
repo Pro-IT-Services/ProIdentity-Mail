@@ -89,7 +89,8 @@ usermod -a -G dovecot proidentity || true
 chown -R proidentity:proidentity /etc/proidentity-mail /opt/proidentity-mail
 chown root:proidentity /opt/proidentity-mail/bin/proidentity-rootctl
 chown root:root /var/backups/proidentity-mail
-chmod 0750 /etc/proidentity-mail /etc/proidentity-mail/generated /opt/proidentity-mail /opt/proidentity-mail/bin
+chmod 0750 /etc/proidentity-mail /etc/proidentity-mail/generated
+chmod 0755 /opt/proidentity-mail /opt/proidentity-mail/bin
 chmod 0750 /opt/proidentity-mail/bin/proidentity-rootctl
 chmod 0750 /var/backups/proidentity-mail
 cat > /etc/sudoers.d/proidentity-mail-rootctl <<'EOF'

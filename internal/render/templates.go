@@ -357,12 +357,10 @@ server {
 server {
   listen 80;
   server_name {{ .AdminHostname }};
-  {{- if eq .TLSMode "letsencrypt-http" }}
   location ^~ /.well-known/acme-challenge/ {
     root {{ .ACMEWebroot }};
     default_type "text/plain";
   }
-  {{- end }}
   {{- if and .TLSEnabled .ForceHTTPS }}
   location / {
     return 301 https://$host$request_uri;
@@ -381,12 +379,10 @@ server {
 server {
   listen 80;
   server_name {{ .WebmailHostname }};
-  {{- if eq .TLSMode "letsencrypt-http" }}
   location ^~ /.well-known/acme-challenge/ {
     root {{ .ACMEWebroot }};
     default_type "text/plain";
   }
-  {{- end }}
   {{- if and .TLSEnabled .ForceHTTPS }}
   location / {
     return 301 https://$host$request_uri;
@@ -412,12 +408,10 @@ server {
 server {
   listen 80;
   server_name {{ .MailServerName }};
-  {{- if eq .TLSMode "letsencrypt-http" }}
   location ^~ /.well-known/acme-challenge/ {
     root {{ .ACMEWebroot }};
     default_type "text/plain";
   }
-  {{- end }}
   {{- if and .TLSEnabled .ForceHTTPS }}
   location / {
     return 301 https://$host$request_uri;
@@ -456,12 +450,10 @@ server {
 server {
   listen 80;
   server_name {{ .DiscoveryServerNames }};
-  {{- if eq .TLSMode "letsencrypt-http" }}
   location ^~ /.well-known/acme-challenge/ {
     root {{ .ACMEWebroot }};
     default_type "text/plain";
   }
-  {{- end }}
   {{- if and .TLSEnabled .ForceHTTPS }}
   location / {
     return 301 https://$host$request_uri;
@@ -491,12 +483,10 @@ server {
 server {
   listen 80;
   server_name {{ .DAVHostname }};
-  {{- if eq .TLSMode "letsencrypt-http" }}
   location ^~ /.well-known/acme-challenge/ {
     root {{ .ACMEWebroot }};
     default_type "text/plain";
   }
-  {{- end }}
   {{- if and .TLSEnabled .ForceHTTPS }}
   location / {
     return 301 https://$host$request_uri;

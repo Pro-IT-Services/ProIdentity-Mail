@@ -1966,6 +1966,9 @@ func TestCreateDomainEndpoint(t *testing.T) {
 	if store.mailDomain.TenantID != 11 || store.mailDomain.Name != "example.com" {
 		t.Fatalf("domain not passed to store: %+v", store.mailDomain)
 	}
+	if store.mailDomain.Status != "" {
+		t.Fatalf("create domain request should let store choose default status, got %+v", store.mailDomain)
+	}
 	wantLocalParts := map[string]string{
 		"postmaster": "Postmaster",
 		"abuse":      "Abuse Desk",
@@ -2837,7 +2840,7 @@ func (s *fakeStore) DeleteTenant(ctx context.Context, tenantID uint64) error {
 func (s *fakeStore) CreateDomain(ctx context.Context, mailDomain domain.Domain) (domain.Domain, error) {
 	s.mailDomain = mailDomain
 	mailDomain.ID = 22
-	mailDomain.Status = "pending"
+	mailDomain.Status = "active"
 	return mailDomain, nil
 }
 
@@ -2845,7 +2848,7 @@ func (s *fakeStore) ListDomains(ctx context.Context) ([]domain.Domain, error) {
 	if s.domains != nil {
 		return s.domains, nil
 	}
-	return []domain.Domain{{ID: 22, TenantID: 11, Name: "example.com", Status: "pending", DKIMSelector: "mail"}}, nil
+	return []domain.Domain{{ID: 22, TenantID: 11, Name: "example.com", Status: "active", DKIMSelector: "mail"}}, nil
 }
 
 func (s *fakeStore) UpdateDomain(ctx context.Context, mailDomain domain.Domain) (domain.Domain, error) {

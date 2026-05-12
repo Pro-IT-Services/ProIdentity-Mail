@@ -13,7 +13,7 @@ Environment=PROIDENTITY_BACKUP_KEEP_DAILY=7
 Environment=PROIDENTITY_BACKUP_KEEP_WEEKLY=4
 Environment=PROIDENTITY_BACKUP_KEEP_MONTHLY=12
 Environment=PROIDENTITY_BACKUP_SCHEDULED=1
-ExecStart=/usr/bin/sudo -n -E /opt/proidentity-mail/bin/proidentity-rootctl backup
+ExecStart=/usr/bin/sudo -n /opt/proidentity-mail/bin/proidentity-rootctl backup
 UMask=0077
 NoNewPrivileges=false
 PrivateTmp=true

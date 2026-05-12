@@ -146,8 +146,8 @@ func TestProductionSetupIncludesConfigApplyQueue(t *testing.T) {
 		"proidentity-config-apply.service",
 		"proidentity-config-apply.path",
 		"PathChanged=/etc/proidentity-mail/apply-request",
-		"ExecStart=/usr/bin/sudo -n -E /opt/proidentity-mail/bin/proidentity-rootctl config-apply",
-		"ExecStart=/usr/bin/sudo -n -E /opt/proidentity-mail/bin/proidentity-rootctl sync-proxy",
+		"ExecStart=/usr/bin/sudo -n /opt/proidentity-mail/bin/proidentity-rootctl config-apply",
+		"ExecStart=/usr/bin/sudo -n /opt/proidentity-mail/bin/proidentity-rootctl sync-proxy",
 		"systemctl enable --now proidentity-webadmin proidentity-webmail proidentity-groupware proidentity-backup.timer proidentity-tls-worker.timer proidentity-config-apply.path",
 	} {
 		if !strings.Contains(script, want) {
@@ -202,6 +202,15 @@ func TestProductionSetupKeepsBackupsRootOnly(t *testing.T) {
 	}
 	if strings.Contains(script, `install -d -m 0750 -o root -g root /var/lib/proidentity-mail /var/lib/proidentity-mail/quarantine /var/backups/proidentity-mail`) {
 		t.Fatalf("backup directory is still grouped with broader runtime directories")
+	}
+	for _, want := range []string{
+		`install -d -m 0751 -o root -g root /var/lib/proidentity-mail`,
+		`install -d -m 0750 -o root -g root /var/lib/proidentity-mail/quarantine`,
+		`install -d -m 0755 -o root -g root /var/lib/proidentity-mail/acme`,
+	} {
+		if !strings.Contains(script, want) {
+			t.Fatalf("setup script missing ACME/quarantine permission marker %s", want)
+		}
 	}
 	if !strings.Contains(script, "Environment=PROIDENTITY_BACKUP_SCHEDULED=1") {
 		t.Fatalf("backup service should mark timer-backed runs for audit")
@@ -263,10 +272,11 @@ func TestPrivilegedJobsUseScopedRootHelper(t *testing.T) {
 		"proidentity ALL=(root) NOPASSWD: ${BIN_DIR}/proidentity-rootctl tls-worker",
 		"proidentity ALL=(root) NOPASSWD: ${BIN_DIR}/proidentity-rootctl config-apply",
 		"proidentity ALL=(root) NOPASSWD: ${BIN_DIR}/proidentity-rootctl sync-proxy",
-		"ExecStart=/usr/bin/sudo -n -E /opt/proidentity-mail/bin/proidentity-rootctl backup",
-		"ExecStart=/usr/bin/sudo -n -E /opt/proidentity-mail/bin/proidentity-rootctl tls-worker",
-		"ExecStart=/usr/bin/sudo -n -E /opt/proidentity-mail/bin/proidentity-rootctl config-apply",
-		"ExecStart=/usr/bin/sudo -n -E /opt/proidentity-mail/bin/proidentity-rootctl sync-proxy",
+		"ExecStart=/usr/bin/sudo -n /opt/proidentity-mail/bin/proidentity-rootctl backup",
+		"ExecStart=/usr/bin/sudo -n /opt/proidentity-mail/bin/proidentity-rootctl tls-worker",
+		"ExecStart=/usr/bin/sudo -n /opt/proidentity-mail/bin/proidentity-rootctl config-apply",
+		"ExecStart=/usr/bin/sudo -n /opt/proidentity-mail/bin/proidentity-rootctl sync-proxy",
+		"ReadWritePaths=/etc/proidentity-mail /etc/letsencrypt /etc/nginx /etc/postfix /etc/dovecot /etc/rspamd /var/lib/rspamd/dkim /var/lib/proidentity-mail/acme /var/lib/proidentity-mail /var/spool/postfix /run /tmp",
 	} {
 		if !strings.Contains(script, want) {
 			t.Fatalf("production setup missing scoped root helper marker %s", want)
@@ -287,7 +297,7 @@ func TestPrivilegedJobsUseScopedRootHelper(t *testing.T) {
 			t.Fatalf("read %s: %v", path, err)
 		}
 		unit := string(unitBytes)
-		for _, want := range []string{"User=proidentity", "/usr/bin/sudo -n -E /opt/proidentity-mail/bin/proidentity-rootctl"} {
+		for _, want := range []string{"User=proidentity", "/usr/bin/sudo -n /opt/proidentity-mail/bin/proidentity-rootctl"} {
 			if !strings.Contains(unit, want) {
 				t.Fatalf("%s missing scoped root helper marker %s", path, want)
 			}
@@ -311,6 +321,14 @@ func TestPrivilegedJobsUseScopedRootHelper(t *testing.T) {
 	for _, want := range []string{"/etc/sudoers.d/proidentity-mail-rootctl", "visudo -cf", "install -m 0750 /tmp/proidentity-devmail/proidentity-rootctl"} {
 		if !strings.Contains(setup, want) {
 			t.Fatalf("dev runtime setup missing root helper marker %s", want)
+		}
+	}
+	for _, want := range []string{
+		"install -d -m 0755 -o root -g root /opt/proidentity-mail",
+		"chmod 0755 /opt/proidentity-mail /opt/proidentity-mail/bin",
+	} {
+		if !strings.Contains(script+setup, want) {
+			t.Fatalf("runtime setup missing executable directory access marker %s", want)
 		}
 	}
 }
