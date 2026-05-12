@@ -870,6 +870,7 @@ prepare_runtime_dirs() {
   install -d -m 0750 -o root -g postfix /etc/postfix/proidentity
   install -d -m 0700 -o root -g root /etc/postfix/proidentity/tls-sni
   rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
+  install -m 0660 -o proidentity -g proidentity /dev/null "${ENV_DIR}/apply-request"
 }
 
 issue_certificate_if_requested() {

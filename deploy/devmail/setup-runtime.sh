@@ -93,6 +93,7 @@ chmod 0750 /etc/proidentity-mail /etc/proidentity-mail/generated
 chmod 0755 /opt/proidentity-mail /opt/proidentity-mail/bin
 chmod 0750 /opt/proidentity-mail/bin/proidentity-rootctl
 chmod 0750 /var/backups/proidentity-mail
+install -m 0660 -o proidentity -g proidentity /dev/null /etc/proidentity-mail/apply-request
 cat > /etc/sudoers.d/proidentity-mail-rootctl <<'EOF'
 Defaults:proidentity env_keep += "PROIDENTITY_*"
 proidentity ALL=(root) NOPASSWD: /opt/proidentity-mail/bin/proidentity-rootctl backup

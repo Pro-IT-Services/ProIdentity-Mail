@@ -148,6 +148,7 @@ func TestProductionSetupIncludesConfigApplyQueue(t *testing.T) {
 		"PathChanged=/etc/proidentity-mail/apply-request",
 		"ExecStart=/usr/bin/sudo -n /opt/proidentity-mail/bin/proidentity-rootctl config-apply",
 		"ExecStart=/usr/bin/sudo -n /opt/proidentity-mail/bin/proidentity-rootctl sync-proxy",
+		`install -m 0660 -o proidentity -g proidentity /dev/null "${ENV_DIR}/apply-request"`,
 		"systemctl enable --now proidentity-webadmin proidentity-webmail proidentity-groupware proidentity-backup.timer proidentity-tls-worker.timer proidentity-config-apply.path",
 	} {
 		if !strings.Contains(script, want) {
