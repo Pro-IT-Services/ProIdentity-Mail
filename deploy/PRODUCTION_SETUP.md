@@ -33,7 +33,35 @@ owns the public certificate.
 - `custom-cert`: installs an existing certificate/key pair and applies it to
   web HTTPS plus Postfix/Dovecot TLS inventory.
 
-## Build Steps
+## Recommended: Install From Binary Release
+
+Use this path for normal server setup. The target server downloads the published
+release archive, verifies checksums when available, and runs the same full
+bootstrap script without compiling Go code on the server.
+
+```bash
+curl -fsSL https://github.com/Pro-IT-Services/ProIdentity-Mail/raw/main/deploy/install-from-release.sh \
+  -o /tmp/install-proidentity-mail.sh
+chmod +x /tmp/install-proidentity-mail.sh
+
+sudo /tmp/install-proidentity-mail.sh \
+  --github-repo Pro-IT-Services/ProIdentity-Mail \
+  --version v0.1.0 \
+  -- \
+  --public-ipv4 203.0.113.10 \
+  --mail-hostname mail.example.com \
+  --admin-hostname madmin.example.com \
+  --webmail-hostname webmail.example.com \
+  --dav-hostname webmail.example.com \
+  --autoconfig-hostname autoconfig.example.com \
+  --autodiscover-hostname autodiscover.example.com \
+  --tls-mode none
+```
+
+For more release installer options, including GitLab and direct archive URLs,
+see [BINARY_RELEASE_INSTALL.md](BINARY_RELEASE_INSTALL.md).
+
+## Alternative: Build Local Artifacts
 
 From the project worktree:
 
@@ -54,7 +82,7 @@ go build -buildvcs=false -o .\bin\mailctl-linux-amd64 .\cmd\mailctl
 Remove-Item Env:\GOCACHE,Env:\GOOS,Env:\GOARCH -ErrorAction SilentlyContinue
 ```
 
-## Upload Steps
+## Upload Local Artifacts
 
 ```powershell
 ssh -o BatchMode=yes root@203.0.113.10 "rm -rf /tmp/proidentity-release; mkdir -p /tmp/proidentity-release"
@@ -62,7 +90,7 @@ scp -o BatchMode=yes .\bin\webadmin-linux-amd64 .\bin\webmail-linux-amd64 .\bin\
 ssh -o BatchMode=yes root@203.0.113.10 "cd /tmp/proidentity-release; cp webadmin-linux-amd64 webadmin; cp webmail-linux-amd64 webmail; cp groupware-linux-amd64 groupware; cp mailctl-linux-amd64 mailctl; cp apply-mail-config.sh apply-mail-config; chmod +x webadmin webmail groupware mailctl apply-mail-config proidentity-production-setup.sh; bash -n proidentity-production-setup.sh"
 ```
 
-## Install Command Used
+## Run Bootstrap Script With Local Artifacts
 
 ```bash
 bash /tmp/proidentity-release/proidentity-production-setup.sh \
