@@ -3348,7 +3348,7 @@ const webmailIndexHTML = `<!doctype html>
       }
     });
     document.querySelector("#attachment-input").addEventListener("change", event => {
-      const next = [...event.currentTarget.files];
+      const next = [...state.attachments, ...event.currentTarget.files];
       const total = next.reduce((sum, file) => sum + file.size, 0);
       if (next.length > 10 || total > 25 * 1024 * 1024) {
         showToast("You can attach up to 10 files and 25 MB total", true);
@@ -3356,6 +3356,7 @@ const webmailIndexHTML = `<!doctype html>
         return;
       }
       state.attachments = next;
+      event.currentTarget.value = "";
       renderAttachments();
     });
     document.querySelector("#profile-card").addEventListener("click", openProfileModal);

@@ -360,6 +360,13 @@ func TestSendEndpointAcceptsMultipartAttachments(t *testing.T) {
 	if _, err := part.Write([]byte("signed")); err != nil {
 		t.Fatalf("write attachment: %v", err)
 	}
+	part, err = writer.CreateFormFile("attachments", "invoice.pdf")
+	if err != nil {
+		t.Fatalf("create second attachment: %v", err)
+	}
+	if _, err := part.Write([]byte("%PDF invoice")); err != nil {
+		t.Fatalf("write second attachment: %v", err)
+	}
 	if err := writer.Close(); err != nil {
 		t.Fatalf("close multipart: %v", err)
 	}
@@ -376,12 +383,16 @@ func TestSendEndpointAcceptsMultipartAttachments(t *testing.T) {
 	if store.sent.BodyHTML != "<p>See <strong>attached</strong></p>" {
 		t.Fatalf("html body = %q", store.sent.BodyHTML)
 	}
-	if len(store.sent.Attachments) != 1 {
-		t.Fatalf("attachments = %+v, want one", store.sent.Attachments)
+	if len(store.sent.Attachments) != 2 {
+		t.Fatalf("attachments = %+v, want two", store.sent.Attachments)
 	}
 	attachment := store.sent.Attachments[0]
 	if attachment.Filename != "contract.txt" || string(attachment.Data) != "signed" || attachment.ContentType == "" {
 		t.Fatalf("unexpected attachment: %+v", attachment)
+	}
+	second := store.sent.Attachments[1]
+	if second.Filename != "invoice.pdf" || string(second.Data) != "%PDF invoice" || second.ContentType == "" {
+		t.Fatalf("unexpected second attachment: %+v", second)
 	}
 }
 

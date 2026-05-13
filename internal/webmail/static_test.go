@@ -83,6 +83,17 @@ func TestWebmailComposeSupportsAttachmentsSignatureAndProfile(t *testing.T) {
 	}
 }
 
+func TestWebmailComposeAccumulatesAttachmentSelections(t *testing.T) {
+	for _, want := range []string{
+		`const next = [...state.attachments, ...event.currentTarget.files];`,
+		`event.currentTarget.value = "";`,
+	} {
+		if !strings.Contains(webmailIndexHTML, want) {
+			t.Fatalf("webmail compose must keep previously selected attachments across picker changes; missing %q", want)
+		}
+	}
+}
+
 func TestWebmailSecondaryViewsUseTranslatableChrome(t *testing.T) {
 	for _, want := range []string{
 		`updateViewChrome("Search contacts...")`,
