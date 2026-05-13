@@ -285,14 +285,20 @@ func (m *Manager) Create(r *http.Request, subject, kind string) (Created, error)
 }
 
 func (m *Manager) Validate(r *http.Request) (Session, bool) {
-	cookie, err := r.Cookie(m.cookieName)
+	cookie, err := r.Cookie(m.cookieName)ň
 	if err != nil || cookie.Value == "" {
 		return Session{}, false
 	}
 	m.mu.RLock()
 	session, ok := m.sessions[hash(cookie.Value)]
 	m.mu.RUnlock()
-	if !ok || time.Now().After(session.expiresAt) {
+	if !ok {
+		return Session{}, false
+	}
+	if time.Now().After(session.expiresAt) {
+		m.mu.Lock()
+		delete(m.sessions, hash(cookie.Value))
+		m.mu.Unlock()
 		return Session{}, false
 	}
 	if subtle.ConstantTimeCompare([]byte(session.fingerprintHash), []byte(browserFingerprint(r))) != 1 {
