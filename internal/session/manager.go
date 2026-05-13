@@ -285,7 +285,7 @@ func (m *Manager) Create(r *http.Request, subject, kind string) (Created, error)
 }
 
 func (m *Manager) Validate(r *http.Request) (Session, bool) {
-	cookie, err := r.Cookie(m.cookieName)ň
+	cookie, err := r.Cookie(m.cookieName)
 	if err != nil || cookie.Value == "" {
 		return Session{}, false
 	}
