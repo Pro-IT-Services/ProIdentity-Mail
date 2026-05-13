@@ -40,7 +40,7 @@ message_size_limit = 52428800
 mailbox_size_limit = 0
 smtpd_sender_login_maps = mysql:/etc/postfix/proidentity/sender-login-maps.cf
 smtpd_relay_restrictions = permit_mynetworks,permit_sasl_authenticated,reject_unauth_destination
-smtpd_client_restrictions = permit_mynetworks,reject_rbl_client zen.spamhaus.org
+smtpd_client_restrictions = permit_mynetworks,reject_rbl_client zen.spamhaus.org=127.0.0.[2..11]
 smtpd_recipient_restrictions = permit_mynetworks,reject_unauth_destination
 smtpd_sender_restrictions = reject_non_fqdn_sender,reject_unknown_sender_domain
 virtual_transport = lmtp:unix:private/dovecot-lmtp

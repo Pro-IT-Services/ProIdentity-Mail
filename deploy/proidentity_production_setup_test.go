@@ -125,12 +125,22 @@ func TestProductionSetupConfiguresDNSBLSafeResolver(t *testing.T) {
 		"configure_dns_resolver",
 		"/etc/unbound/unbound.conf.d/proidentity-dnsbl.conf",
 		"nameserver 127.0.0.1",
-		"nameserver 1.1.1.1",
-		"nameserver 8.8.8.8",
+		"Do not add public DNS resolvers here",
+		"supersede domain-name-servers 127.0.0.1",
 		"systemctl enable --now redis-server unbound postfix",
 	} {
 		if !strings.Contains(script, want) {
 			t.Fatalf("setup script missing DNSBL resolver setup %s", want)
+		}
+	}
+	for _, disallowed := range []string{
+		"nameserver 1.1.1.1",
+		"nameserver 8.8.8.8",
+		"2606:4700:4700::1111",
+		"2001:4860:4860::8888",
+	} {
+		if strings.Contains(script, disallowed) {
+			t.Fatalf("setup script must not configure public DNS fallback for DNSBL checks: %s", disallowed)
 		}
 	}
 }

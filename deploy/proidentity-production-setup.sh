@@ -381,30 +381,30 @@ EOF
 
   install -d -m 0755 /etc/resolvconf/resolv.conf.d
   cat > /etc/resolvconf/resolv.conf.d/head <<'EOF'
-# ProIdentity local resolver for DNSBL; public DNS as fallback only
+# ProIdentity local resolver for DNSBL checks.
+# Do not add public DNS resolvers here: Spamhaus returns 127.255.255.x error
+# codes for public/open resolver paths, and MTAs must not treat those as spam.
 nameserver 127.0.0.1
-nameserver 1.1.1.1
-nameserver 8.8.8.8
 EOF
 
   if [[ -f /etc/dhcp/dhclient.conf ]]; then
     if grep -q "^supersede domain-name-servers" /etc/dhcp/dhclient.conf; then
-      sed -i "s/^supersede domain-name-servers.*/supersede domain-name-servers 1.1.1.1, 8.8.8.8;/" /etc/dhcp/dhclient.conf
+      sed -i "s/^supersede domain-name-servers.*/supersede domain-name-servers 127.0.0.1;/" /etc/dhcp/dhclient.conf
     else
-      printf '\n# ProIdentity preferred public resolvers\nsupersede domain-name-servers 1.1.1.1, 8.8.8.8;\n' >> /etc/dhcp/dhclient.conf
+      printf '\n# ProIdentity local recursive resolver for DNSBL checks\nsupersede domain-name-servers 127.0.0.1;\n' >> /etc/dhcp/dhclient.conf
     fi
   fi
 
   if [[ -f /etc/network/interfaces.d/50-cloud-init ]]; then
-    sed -i 's/^\([[:space:]]*dns-nameservers\).*/\1 2606:4700:4700::1111 2001:4860:4860::8888/' /etc/network/interfaces.d/50-cloud-init || true
+    sed -i 's/^\([[:space:]]*dns-nameservers\).*/\1 127.0.0.1/' /etc/network/interfaces.d/50-cloud-init || true
   fi
 
   unbound-checkconf
   systemctl enable --now unbound
   systemctl restart unbound
   if command -v resolvconf >/dev/null 2>&1; then
-    printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' | resolvconf -a eth0.dhclient || true
-    printf 'nameserver 2606:4700:4700::1111\nnameserver 2001:4860:4860::8888\n' | resolvconf -a eth0.inet6 || true
+    printf 'nameserver 127.0.0.1\n' | resolvconf -a eth0.dhclient || true
+    printf 'nameserver 127.0.0.1\n' | resolvconf -a eth0.inet6 || true
     resolvconf -u || true
   fi
 }

@@ -38,8 +38,8 @@ func TestRenderPostfixMainIncludesVirtualMailboxDomain(t *testing.T) {
 	if !strings.Contains(text, "smtpd_sender_login_maps = mysql:/etc/postfix/proidentity/sender-login-maps.cf") {
 		t.Fatalf("rendered config missing sender login map: %s", text)
 	}
-	if !strings.Contains(text, "smtpd_client_restrictions = permit_mynetworks,reject_rbl_client zen.spamhaus.org") {
-		t.Fatalf("rendered config must apply DNSBL checks on inbound SMTP: %s", text)
+	if !strings.Contains(text, "smtpd_client_restrictions = permit_mynetworks,reject_rbl_client zen.spamhaus.org=127.0.0.[2..11]") {
+		t.Fatalf("rendered config must apply DNSBL checks only for Spamhaus reputation return codes: %s", text)
 	}
 	if !strings.Contains(text, "disable_vrfy_command = yes") {
 		t.Fatalf("rendered config must disable VRFY: %s", text)
